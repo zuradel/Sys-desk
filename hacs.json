@@ -1,0 +1,6 @@
+{
+  "name": "SysDesk",
+  "filename": "sysdesk.js",
+  "render_readme": true,
+  "homeassistant": "2023.1.0"
+}
