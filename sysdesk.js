@@ -1777,7 +1777,10 @@ class SysDesk extends HTMLElement {
       const tips = _t('float_tips', this._cn());
       this._floatTip(this._rand(tips), 3000);
     });
-    document.getElementById('sd-float-char').addEventListener('dblclick', () => this._exitFloating());
+    document.getElementById('sd-float-char').addEventListener('dblclick', () => {
+      if (this._config.enable_modal) { this._openControlModal(); return; }
+      this._exitFloating();
+    });
 
     this._floatMouseMove = (e) => {
       const fr = document.getElementById('_sd_float_frame');
@@ -1898,6 +1901,9 @@ class SysDesk extends HTMLElement {
       const msg  = this._rand(msgs);
       wrap.classList.remove('show');
       setTimeout(() => { inner.innerHTML = msg; wrap.classList.add('show'); }, 160);
+    });
+    document.getElementById('sd-pin-char').addEventListener('dblclick', () => {
+      if (this._config.enable_modal) this._openControlModal();
     });
 
     this._pinMouseMove = (e) => {
