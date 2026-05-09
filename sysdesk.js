@@ -1160,8 +1160,19 @@ class SysDesk extends HTMLElement {
     this._startStatusRotation();
     setTimeout(() => this._greet(), 3000);
 
-    try { if (localStorage.getItem('sd_floating') === '1') setTimeout(() => this._enterFloating(), 500); } catch(e) {}
-    try { if (localStorage.getItem('sd_pinned')   === '1') setTimeout(() => this._enterPin(), 600); } catch(e) {}
+    // hide_toolbar: card config flag → hides ◀▶📊TTS⟳⬇📌✕ toolbar entirely.
+    if (this._config.hide_toolbar) {
+      const tb = this._shadow.querySelector('.sd-toolbar');
+      if (tb) tb.style.display = 'none';
+    }
+
+    // always_pinned: auto-enter pin mode after first render. Overrides localStorage.
+    if (this._config.always_pinned) {
+      setTimeout(() => { if (!this._pinned) this._enterPin(); }, 600);
+    } else {
+      try { if (localStorage.getItem('sd_floating') === '1') setTimeout(() => this._enterFloating(), 500); } catch(e) {}
+      try { if (localStorage.getItem('sd_pinned')   === '1') setTimeout(() => this._enterPin(), 600); } catch(e) {}
+    }
   }
 
   // ── Load model into iframe ──────────────────────────────────
@@ -1182,7 +1193,10 @@ class SysDesk extends HTMLElement {
           else         this._pushStatus(msg, true);
           this._playAudio(msg.replace(/[^\p{L}\p{N}\s]/gu, ''));
         });
-        doc.addEventListener('dblclick', () => { if (this._floating) this._exitFloating(); });
+        doc.addEventListener('dblclick', () => {
+          if (this._config.enable_modal) { this._openControlModal(); return; }
+          if (this._floating) this._exitFloating();
+        });
       } catch(e) {}
     };
     // srcdoc embeds HTML directly into iframe attribute. Browser re-parses on iframe attach
@@ -1843,12 +1857,15 @@ class SysDesk extends HTMLElement {
 
     const el = document.createElement('div');
     el.id = 'sd-pin-overlay';
-    el.innerHTML = `
+    // Hide pin overlay controls if enable_modal — user uses dblclick → modal instead.
+    const pinControlsHtml = this._config.enable_modal ? '' : `
       <div id="sd-pin-controls">
         <button class="sd-pin-btn" id="_sd_pbtn_prev">◀</button>
         <button class="sd-pin-btn" id="_sd_pbtn_next">▶</button>
         <button class="sd-pin-btn unpin" id="_sd_pbtn_unpin">${_t('pin_btn_unpin')}</button>
-      </div>
+      </div>`;
+    el.innerHTML = `
+      ${pinControlsHtml}
       <div id="sd-pin-char">
         <div id="_sd_pin_chat"><div id="_sd_pin_chat_inner"></div></div>
         <iframe id="_sd_pin_frame" width="${fw}" height="${fh}"
@@ -1861,9 +1878,12 @@ class SysDesk extends HTMLElement {
     const fp = document.getElementById('_sd_pin_frame');
     this._loadIntoFrame(fp, this._modelIdx, fw, fh, true);
 
-    document.getElementById('_sd_pbtn_unpin').onclick = () => this._exitPin();
-    document.getElementById('_sd_pbtn_prev').onclick  = () => this._switchModelPrev();
-    document.getElementById('_sd_pbtn_next').onclick  = () => this._switchModelNext();
+    const _unpinBtn = document.getElementById('_sd_pbtn_unpin');
+    if (_unpinBtn) _unpinBtn.onclick = () => this._exitPin();
+    const _prevBtn  = document.getElementById('_sd_pbtn_prev');
+    if (_prevBtn)  _prevBtn.onclick  = () => this._switchModelPrev();
+    const _nextBtn  = document.getElementById('_sd_pbtn_next');
+    if (_nextBtn)  _nextBtn.onclick  = () => this._switchModelNext();
 
     document.getElementById('sd-pin-char').addEventListener('click', () => {
       const inner = document.getElementById('_sd_pin_chat_inner');
@@ -1913,6 +1933,110 @@ class SysDesk extends HTMLElement {
     if (this._pinMouseMove) { document.removeEventListener('mousemove', this._pinMouseMove); this._pinMouseMove = null; }
     if (this._pinChatInterval) { clearInterval(this._pinChatInterval); this._pinChatInterval = null; }
     this._pinChatMsgs = null; this._pinChatIdx = 0;
+  }
+
+  // ── Control modal (dblclick character → open) ──────────────────────────────
+  _openControlModal() {
+    if (document.getElementById('sd-modal-overlay')) return;  // debounce: only one modal
+
+    if (!document.getElementById('_sd_modal_css')) {
+      const st = document.createElement('style');
+      st.id = '_sd_modal_css';
+      st.textContent = `
+        #sd-modal-overlay{position:fixed;inset:0;z-index:2147483647;display:flex;
+          align-items:center;justify-content:center;
+          background:rgba(0,0,0,0.5);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);
+          opacity:0;transition:opacity 150ms ease;}
+        #sd-modal-overlay.show{opacity:1;}
+        #sd-modal-card{min-width:280px;max-width:340px;padding:18px 20px;
+          background:rgba(10,18,45,0.95);border:1px solid rgba(80,160,255,0.4);
+          border-radius:14px;box-shadow:0 12px 48px rgba(0,0,0,0.6);
+          color:#c0e0ff;font-family:'Segoe UI',sans-serif;font-size:13px;
+          transform:scale(0.92);transition:transform 150ms cubic-bezier(0.34,1.56,0.64,1);}
+        #sd-modal-overlay.show #sd-modal-card{transform:scale(1);}
+        .sd-modal-row{display:flex;align-items:center;justify-content:space-between;
+          gap:8px;margin-bottom:10px;}
+        .sd-modal-row.title{font-weight:700;color:#90c8ff;letter-spacing:0.5px;
+          padding-bottom:8px;border-bottom:1px solid rgba(80,160,255,0.2);}
+        .sd-modal-name{flex:1;text-align:center;font-weight:600;color:#a0e0ff;}
+        .sd-modal-btn{padding:6px 12px;background:rgba(80,160,255,0.15);
+          border:1px solid rgba(80,160,255,0.4);border-radius:8px;
+          color:#c0e0ff;font-size:12px;font-weight:600;cursor:pointer;
+          transition:background 120ms,border-color 120ms;font-family:inherit;}
+        .sd-modal-btn:hover{background:rgba(80,160,255,0.3);border-color:rgba(80,160,255,0.7);}
+        .sd-modal-btn.danger{background:rgba(220,80,80,0.15);border-color:rgba(220,80,80,0.4);color:#ffb0b0;}
+        .sd-modal-btn.danger:hover{background:rgba(220,80,80,0.3);}
+        .sd-modal-btn.full{width:100%;text-align:center;}
+        .sd-modal-close{position:absolute;top:8px;right:10px;width:24px;height:24px;
+          padding:0;font-size:14px;line-height:1;border-radius:50%;}
+      `;
+      document.head.appendChild(st);
+    }
+
+    const ov = document.createElement('div');
+    ov.id = 'sd-modal-overlay';
+    ov.innerHTML = `
+      <div id="sd-modal-card" style="position:relative;">
+        <button class="sd-modal-btn sd-modal-close" id="_sd_mb_close">✕</button>
+        <div class="sd-modal-row title">SysDesk · Control</div>
+        <div class="sd-modal-row">
+          <button class="sd-modal-btn" id="_sd_mb_prev">◀</button>
+          <span class="sd-modal-name" id="_sd_mb_name">${SD_MODELS[this._modelIdx].name}</span>
+          <button class="sd-modal-btn" id="_sd_mb_next">▶</button>
+        </div>
+        <div class="sd-modal-row">
+          <button class="sd-modal-btn full" id="_sd_mb_sound">🔊 ${this._audioEnabled ? 'TTS ON' : 'TTS OFF'}</button>
+        </div>
+        <div class="sd-modal-row">
+          <button class="sd-modal-btn full" id="_sd_mb_reload">⟳ Reload Live2D</button>
+        </div>
+        <div class="sd-modal-row">
+          <button class="sd-modal-btn full danger" id="_sd_mb_exit">🚪 Exit Pin</button>
+        </div>
+      </div>`;
+    document.body.appendChild(ov);
+    requestAnimationFrame(() => ov.classList.add('show'));
+
+    const close = () => this._closeControlModal();
+    ov.addEventListener('click', (e) => { if (e.target === ov) close(); });
+    document.getElementById('_sd_mb_close').onclick  = close;
+    document.getElementById('_sd_mb_prev').onclick   = () => {
+      this._switchModelPrev();
+      const n = document.getElementById('_sd_mb_name');
+      if (n) n.textContent = SD_MODELS[this._modelIdx].name;
+    };
+    document.getElementById('_sd_mb_next').onclick   = () => {
+      this._switchModelNext();
+      const n = document.getElementById('_sd_mb_name');
+      if (n) n.textContent = SD_MODELS[this._modelIdx].name;
+    };
+    document.getElementById('_sd_mb_sound').onclick  = () => {
+      this._audioEnabled = !this._audioEnabled;
+      if (!this._audioEnabled) this._stopAudio();
+      const b = document.getElementById('_sd_mb_sound');
+      if (b) b.textContent = '🔊 ' + (this._audioEnabled ? 'TTS ON' : 'TTS OFF');
+    };
+    document.getElementById('_sd_mb_reload').onclick = () => {
+      this._reloadCharFrame();
+      this._pushStatus(_t('reload_done', this._cn()), true);
+      close();
+    };
+    document.getElementById('_sd_mb_exit').onclick   = () => {
+      if (this._pinned)   this._exitPin();
+      if (this._floating) this._exitFloating();
+      close();
+    };
+
+    this._modalEscHandler = (e) => { if (e.key === 'Escape') close(); };
+    document.addEventListener('keydown', this._modalEscHandler);
+  }
+
+  _closeControlModal() {
+    const ov = document.getElementById('sd-modal-overlay');
+    if (!ov) return;
+    ov.classList.remove('show');
+    if (this._modalEscHandler) { document.removeEventListener('keydown', this._modalEscHandler); this._modalEscHandler = null; }
+    setTimeout(() => ov.remove(), 160);
   }
 
   connectedCallback() {
