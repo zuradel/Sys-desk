@@ -1164,6 +1164,9 @@ class SysDesk extends HTMLElement {
       model = await window.PIXI.live2d.Live2DModel.from(m.path);
     } catch (e) {
       console.error('[sysdesk] model load failed', m.path, e);
+      // Destroy the partially-initialized app so subsequent retries get a clean canvas.
+      try { app.destroy(true, { children: true }); } catch (_) {}
+      this[slot] = null;
       return;
     }
     app.stage.addChild(model);
@@ -1807,8 +1810,11 @@ class SysDesk extends HTMLElement {
     this._floatChatMsgs = null; this._floatChatIdx = 0;
     this._shadow.querySelector('.sd-card').style.display = '';
     const c = this._shadow.getElementById('sd-l2d-canvas');
+    const w = this._config.width  || 400;
     const h = this._config.height || 440;
-    if (c) this._loadCanvas(c, this._modelIdx, 400, h, false);
+    // Destroy float overlay's PIXI app — _pinApp slot is shared between float & pin overlays.
+    if (this._pinApp) { try { this._pinApp.destroy(true, { children: true }); } catch (_) {} this._pinApp = null; }
+    if (c) this._loadCanvas(c, this._modelIdx, w, h, false);
     this._pushStatus(_t('back_to_card', this._cn()), true);
   }
 
@@ -1922,6 +1928,8 @@ class SysDesk extends HTMLElement {
     // Restore card visibility if hidden by always_pinned entry.
     const _card = this._shadow.querySelector('.sd-card');
     if (_card && _card.style.display === 'none') _card.style.display = '';
+    // Destroy PIXI app first so WebGL context releases before the canvas DOM node is removed.
+    if (this._pinApp) { try { this._pinApp.destroy(true, { children: true }); } catch (_) {} this._pinApp = null; }
     if (this._pinEl) { this._pinEl.remove(); this._pinEl = null; }
     if (this._pinMouseMove) { document.removeEventListener('mousemove', this._pinMouseMove); this._pinMouseMove = null; }
     if (this._pinChatInterval) { clearInterval(this._pinChatInterval); this._pinChatInterval = null; }
@@ -2025,10 +2033,13 @@ class SysDesk extends HTMLElement {
   }
 
   _closeControlModal() {
+    // Detach ESC listener BEFORE the fade-out timeout so a rapid re-open within 160ms
+    // doesn't end up with two listeners attached.
+    if (this._modalEscHandler) { document.removeEventListener('keydown', this._modalEscHandler); this._modalEscHandler = null; }
+    if (this._pinChatInterval) { clearInterval(this._pinChatInterval); this._pinChatInterval = null; }
     const ov = document.getElementById('sd-modal-overlay');
     if (!ov) return;
     ov.classList.remove('show');
-    if (this._modalEscHandler) { document.removeEventListener('keydown', this._modalEscHandler); this._modalEscHandler = null; }
     setTimeout(() => ov.remove(), 160);
   }
 
@@ -2048,7 +2059,7 @@ class SysDesk extends HTMLElement {
     }
   }
 
-  // Clear setIntervals + remove overlays when HA detaches via view-cache (hui-root.ts:1180).
+  // Clear setIntervals + destroy PIXI apps + remove overlays when HA detaches via view-cache.
   // Save pin/float intent into _wantPinned/_wantFloating so connectedCallback restores on reattach.
   disconnectedCallback() {
     if (this._pinned)   this._wantPinned   = true;
@@ -2058,11 +2069,19 @@ class SysDesk extends HTMLElement {
     try { clearInterval(this._idleInterval); this._idleInterval = null; } catch(e) {}
     try { clearInterval(this._statusInterval); this._statusInterval = null; } catch(e) {}
     try { clearInterval(this._floatChatInterval); this._floatChatInterval = null; } catch(e) {}
+    try { clearInterval(this._pinChatInterval); this._pinChatInterval = null; } catch(e) {}
     try { clearTimeout(this._alertTtsTimer); } catch(e) {}
     try { clearTimeout(this._reportLockTimer); } catch(e) {}
     try { this._stopAudio && this._stopAudio(); } catch(e) {}
+    // Destroy PIXI apps so WebGL contexts release across view-cache cycles.
+    if (this._cardApp) { try { this._cardApp.destroy(true, { children: true }); } catch(_) {} this._cardApp = null; }
+    if (this._pinApp)  { try { this._pinApp .destroy(true, { children: true }); } catch(_) {} this._pinApp  = null; }
     try { document.getElementById('sd-float-overlay')?.remove(); } catch(e) {}
     try { document.getElementById('sd-pin-overlay')?.remove(); } catch(e) {}
+    this._floatEl = null; this._pinEl = null;
+    this._modalEscHandler && document.removeEventListener('keydown', this._modalEscHandler);
+    this._modalEscHandler = null;
+    try { document.getElementById('sd-modal-overlay')?.remove(); } catch(e) {}
   }
 
   // ── Helpers ─────────────────────────────────────────────────
