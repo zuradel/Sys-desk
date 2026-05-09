@@ -1175,12 +1175,13 @@ class SysDesk extends HTMLElement {
     // hide_toolbar + always_pinned now driven by `:host([data-*])` CSS rules set in the
     // attribute block above — no runtime style mutation needed.
 
-    // always_pinned: card already hidden by CSS. Just enter pin mode on next microtask.
+    // Pin/float entry handled in connectedCallback (handles first mount + reattach uniformly).
+    // Just seed the "wanted" state from config / localStorage so connectedCallback knows what to enter.
     if (this._config.always_pinned) {
-      queueMicrotask(() => { if (!this._pinned) this._enterPin(); });
+      this._wantPinned = true;
     } else {
-      try { if (localStorage.getItem('sd_floating') === '1') setTimeout(() => this._enterFloating(), 500); } catch(e) {}
-      try { if (localStorage.getItem('sd_pinned')   === '1') setTimeout(() => this._enterPin(), 600); } catch(e) {}
+      try { if (localStorage.getItem('sd_floating') === '1') this._wantFloating = true; } catch(e) {}
+      try { if (localStorage.getItem('sd_pinned')   === '1') this._wantPinned   = true; } catch(e) {}
     }
   }
 
@@ -2062,14 +2063,29 @@ class SysDesk extends HTMLElement {
     setTimeout(() => ov.remove(), 160);
   }
 
+  // Handles first mount + view-cache reattach uniformly. _wantPinned/_wantFloating seeded by
+  // _render (config/localStorage) and disconnectedCallback (preserve current state on detach).
   connectedCallback() {
-    if (this._floating && !document.getElementById('sd-float-overlay')) setTimeout(() => this._enterFloating(), 300);
-    if (this._pinned   && !document.getElementById('sd-pin-overlay'))   setTimeout(() => this._enterPin(),    300);
+    // Pin re-entry: always_pinned config OR was-pinned-before-detach.
+    if ((this._wantPinned || (this._config && this._config.always_pinned))
+        && !document.getElementById('sd-pin-overlay')) {
+      this._wantPinned = false;
+      setTimeout(() => { if (!this._pinned) this._enterPin(); }, 100);
+    }
+    // Float re-entry: was-floating-before-detach (no config option exposed yet).
+    if (this._wantFloating && !document.getElementById('sd-float-overlay')) {
+      this._wantFloating = false;
+      setTimeout(() => { if (!this._floating) this._enterFloating(); }, 300);
+    }
   }
 
-  // Clear setIntervals + remove overlays when HA detaches via view-cache mechanism
-  // (hui-root.ts:1180 removeChild). Without this, intervals fire on null DOM → crash.
+  // Clear setIntervals + remove overlays when HA detaches via view-cache (hui-root.ts:1180).
+  // Save pin/float intent into _wantPinned/_wantFloating so connectedCallback restores on reattach.
   disconnectedCallback() {
+    if (this._pinned)   this._wantPinned   = true;
+    if (this._floating) this._wantFloating = true;
+    this._pinned   = false;
+    this._floating = false;
     try { clearInterval(this._idleInterval); this._idleInterval = null; } catch(e) {}
     try { clearInterval(this._statusInterval); this._statusInterval = null; } catch(e) {}
     try { clearInterval(this._floatChatInterval); this._floatChatInterval = null; } catch(e) {}
