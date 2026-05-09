@@ -764,6 +764,8 @@ function sdCardTemplate() {
   return `
 <style>
   :host{display:block;}
+  /* always_pinned mode: hide in-card character + toolbar from first paint (no flash). */
+  :host([data-always-pinned]) .sd-card{display:none !important;}
 
   .sd-card{
     background:transparent;
@@ -1067,6 +1069,10 @@ class SysDesk extends HTMLElement {
 
   // ── Render ─────────────────────────────────────────────────
   _render() {
+    // Set host attribute BEFORE innerHTML so CSS `:host([data-always-pinned])` rule applies
+    // on first paint of the shadow tree — eliminates in-card render flash.
+    if (this._config.always_pinned) this.setAttribute('data-always-pinned', '');
+    else                            this.removeAttribute('data-always-pinned');
     this._shadow.innerHTML = sdCardTemplate();
     const h = this._config.height || 440;
     const w = this._config.width  || 400;
@@ -1090,7 +1096,9 @@ class SysDesk extends HTMLElement {
     // hOffset: dương → dịch nhân vật sang phải, âm → sang trái (px)
     const _hOff = SD_MODELS[this._modelIdx].hOffset || 0;
     frame.style.cssText = 'width:' + w + 'px;height:' + h + 'px;border:none;background:transparent;display:block;z-index:2;transition:margin-top 0.3s ease;flex-shrink:0;margin-left:auto;position:relative;left:' + _hOff + 'px;';
-    this._loadIntoFrame(frame, this._modelIdx, w, h, false);
+    // Skip in-card iframe load when always_pinned: card is hidden via CSS, no need to load
+    // Live2D into a frame the user never sees. Pin overlay handles all rendering.
+    if (!this._config.always_pinned) this._loadIntoFrame(frame, this._modelIdx, w, h, false);
 
     // Toolbar events
     this._shadow.getElementById('sdBtnPrev').onclick   = () => this._switchModelPrev();
@@ -1166,12 +1174,10 @@ class SysDesk extends HTMLElement {
       if (tb) tb.style.display = 'none';
     }
 
-    // always_pinned: hide in-card character IMMEDIATELY (before _enterPin runs) so user
-    // never sees the in-card K2 flash before the pin overlay appears.
+    // always_pinned: card already hidden by `:host([data-always-pinned])` CSS rule (set before
+    // innerHTML in _render). Just enter pin mode on next microtask — no visible flash.
     if (this._config.always_pinned) {
-      const _card = this._shadow.querySelector('.sd-card');
-      if (_card) _card.style.display = 'none';
-      setTimeout(() => { if (!this._pinned) this._enterPin(); }, 100);
+      queueMicrotask(() => { if (!this._pinned) this._enterPin(); });
     } else {
       try { if (localStorage.getItem('sd_floating') === '1') setTimeout(() => this._enterFloating(), 500); } catch(e) {}
       try { if (localStorage.getItem('sd_pinned')   === '1') setTimeout(() => this._enterPin(), 600); } catch(e) {}
