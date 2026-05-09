@@ -551,12 +551,16 @@ const SD_MODELS = [
 ];
 
 // ─── Ngưỡng cảnh báo ─────────────────────────────────────────
+// Thresholds raised vs. upstream defaults (warn:70/crit:85 CPU temp, warn:40/crit:55 HDD temp)
+// because under sustained homelab load: CPU temps 75-85°C and HDD temps 50-60°C are normal,
+// not "warnings". User can override via card config (e.g., thresholds: { temp: { warn: ... }})
+// if their cooling differs.
 const SD_THRESHOLDS = {
   cpu:       { warn: 70,  crit: 90  },  // %
   ram:       { warn: 75,  crit: 90  },  // %
   disk:      { warn: 70,  crit: 85  },  // %
-  temp:      { warn: 70,  crit: 85  },  // °C CPU
-  disk_temp: { warn: 40,  crit: 55  },  // °C drive
+  temp:      { warn: 85,  crit: 95  },  // °C CPU — raised from 70/85
+  disk_temp: { warn: 60,  crit: 70  },  // °C drive — raised from 40/55
 };
 
 // ─── Danh sách server sensors mặc định ───────────────────────
