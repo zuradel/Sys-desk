@@ -729,15 +729,16 @@ const SD_PIN_CSS = `
 #sd-pin-badge-pill.has-crit #sd-pin-badge-dot{background:#ff6060;}
 #sd-pin-badge-pill.has-warn #sd-pin-badge-dot{background:#ffd040;}
 #sd-pin-badge-dropdown{position:absolute;bottom:calc(100% + 5px);right:0;
-  min-width:200px;max-width:240px;
+  width:max-content;max-width:280px;
   background:rgba(10,18,45,0.92);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);
   border:1px solid rgba(80,160,255,0.38);border-radius:10px;padding:5px 6px;
-  display:flex;flex-direction:column;gap:3px;
+  display:flex;flex-direction:column;align-items:flex-end;gap:3px;
   max-height:220px;overflow-y:auto;overflow-x:hidden;
   scrollbar-width:thin;scrollbar-color:rgba(80,160,255,0.35) transparent;
   box-shadow:0 8px 24px rgba(0,0,0,0.45);
   opacity:0;pointer-events:none;transform:translateY(-6px);
   transition:opacity 0.2s ease,transform 0.2s ease;z-index:51;font-family:'Segoe UI',sans-serif;}
+#sd-pin-badge-dropdown .sd-badge-row{justify-content:flex-end;text-align:right;width:auto;flex-shrink:0;}
 #sd-pin-badge-dropdown::-webkit-scrollbar{width:3px;}
 #sd-pin-badge-dropdown::-webkit-scrollbar-thumb{background:rgba(80,160,255,0.4);border-radius:2px;}
 #sd-pin-status-badge:hover #sd-pin-badge-dropdown,
@@ -746,7 +747,7 @@ const SD_PIN_CSS = `
 @media (max-width: 768px){
   #sd-pin-status-badge{bottom:8px;right:8px;}
   #sd-pin-badge-pill{padding:3px 7px 3px 6px;font-size:9.5px;}
-  #sd-pin-badge-dropdown{min-width:150px;max-width:180px;font-size:9.5px;}
+  #sd-pin-badge-dropdown{max-width:200px;font-size:9.5px;}
 }
 `;
 
@@ -807,7 +808,7 @@ function sdCardTemplate() {
   /* Dropdown — ẩn mặc định, hiện khi hover vào #sd-status-badge */
   #sd-badge-dropdown{
     position:absolute;top:calc(100% + 5px);left:0;
-    min-width:200px;max-width:240px;
+    width:max-content;max-width:280px;
     background:rgba(10,18,45,0.92);
     backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);
     border:1px solid rgba(80,160,255,0.38);
