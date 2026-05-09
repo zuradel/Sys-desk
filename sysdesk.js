@@ -585,13 +585,13 @@ const SD_ALL_SENSORS = Object.values(SD_SERVER_SENSORS).flat();
 
 // ─── Các dịch vụ / AP cần theo dõi trạng thái ────────────────
 const SD_SERVICES = [
-  { key:'adguard', entity:'switch.adguard_home_protection', label:'AdGuard'       },
-  { key:'wifi_5',  entity:'sensor.5_office_state',          label:'WiFi Office'   },
-  { key:'wifi_6',  entity:'sensor.6_living_state',          label:'WiFi Living'   },
-  { key:'wifi_7',  entity:'sensor.7_kitchen_state',         label:'WiFi Kitchen'  },
-  { key:'wifi_8',  entity:'sensor.8_garage_state',          label:'WiFi Garage'   },
-  { key:'wifi_9',  entity:'sensor.9_outside_state',         label:'WiFi Outside'  },
-  { key:'nano_hd', entity:'sensor.nano_hd_state',           label:'Nano HD AP'    },
+  // { key:'adguard', entity:'switch.adguard_home_protection', label:'AdGuard'       },
+  // { key:'wifi_5',  entity:'sensor.5_office_state',          label:'WiFi Office'   },
+  // { key:'wifi_6',  entity:'sensor.6_living_state',          label:'WiFi Living'   },
+  // { key:'wifi_7',  entity:'sensor.7_kitchen_state',         label:'WiFi Kitchen'  },
+  // { key:'wifi_8',  entity:'sensor.8_garage_state',          label:'WiFi Garage'   },
+  // { key:'wifi_9',  entity:'sensor.9_outside_state',         label:'WiFi Outside'  },
+  // { key:'nano_hd', entity:'sensor.nano_hd_state',           label:'Nano HD AP'    },
 ];
 
 // ─── Pool tin nhắn cảnh báo (i18n-aware getter) ─────────────────
@@ -1049,9 +1049,11 @@ class SysDesk extends HTMLElement {
     canvas.style.cssText = 'position:absolute;top:0;right:0;width:' + w + 'px;height:' + h + 'px;display:block;background:transparent;pointer-events:none;z-index:1;transform:translateX(' + _hOff + 'px);';
     canvas.width  = w;
     canvas.height = h;
-    this._loadCanvas(canvas, this._modelIdx, w, h, false);
-    // Ensure host is positioned so canvas absolute works.
     if (!this.style.position) this.style.position = 'relative';
+    // Defer L2Dwidget mount to connectedCallback. _render() runs from setConfig BEFORE host is
+    // attached to document → document.getElementById(canvas.id) fails inside L2Dwidget.init.
+    this._pendingCanvasLoad = true;
+    if (this.isConnected) this._maybeLoadCanvas();
 
     // Toolbar events
     this._shadow.getElementById('sdBtnPrev').onclick   = () => this._switchModelPrev();
@@ -1860,6 +1862,19 @@ class SysDesk extends HTMLElement {
   connectedCallback() {
     if (this._floating && !document.getElementById('sd-float-overlay')) setTimeout(() => this._enterFloating(), 300);
     if (this._pinned   && !document.getElementById('sd-pin-overlay'))   setTimeout(() => this._enterPin(),    300);
+    this._maybeLoadCanvas();
+  }
+
+  // Mount Live2D once host is in document. Called from _render (if already connected) and
+  // from connectedCallback (handles initial mount + view-cache reattach for WebGL context loss).
+  _maybeLoadCanvas() {
+    if (!this._config || !this.isConnected) return;
+    const c = this.querySelector(':scope > #' + this._canvasId);
+    if (!c) return;
+    this._pendingCanvasLoad = false;
+    const w = this._config.width  || 400;
+    const h = this._config.height || 440;
+    setTimeout(() => this._loadCanvas(c, this._modelIdx, w, h, false), 0);
   }
 
   // Clear setIntervals + remove global overlays when HA detaches the card
