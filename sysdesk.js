@@ -1166,9 +1166,12 @@ class SysDesk extends HTMLElement {
       if (tb) tb.style.display = 'none';
     }
 
-    // always_pinned: auto-enter pin mode after first render. Overrides localStorage.
+    // always_pinned: hide in-card character IMMEDIATELY (before _enterPin runs) so user
+    // never sees the in-card K2 flash before the pin overlay appears.
     if (this._config.always_pinned) {
-      setTimeout(() => { if (!this._pinned) this._enterPin(); }, 600);
+      const _card = this._shadow.querySelector('.sd-card');
+      if (_card) _card.style.display = 'none';
+      setTimeout(() => { if (!this._pinned) this._enterPin(); }, 100);
     } else {
       try { if (localStorage.getItem('sd_floating') === '1') setTimeout(() => this._enterFloating(), 500); } catch(e) {}
       try { if (localStorage.getItem('sd_pinned')   === '1') setTimeout(() => this._enterPin(), 600); } catch(e) {}
