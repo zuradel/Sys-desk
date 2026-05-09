@@ -1179,8 +1179,7 @@ class SysDesk extends HTMLElement {
     canvas.onclick = () => {
       const tips = _t('char_click_tips', this._cn());
       const msg = this._rand(tips);
-      if (isFloat) this._floatTip(msg, 3500);
-      else         this._pushStatus(msg, true);
+      this._dispatchMsg(msg, 3500);
       this._playAudio(msg.replace(/[^\p{L}\p{N}\s]/gu, ''));
     };
     canvas.ondblclick = () => {
@@ -1375,8 +1374,7 @@ class SysDesk extends HTMLElement {
     this._checkAlertResolved();
 
     if (alertMsg && alertKey) {
-      if (this._floating) this._floatTip(alertMsg, alertMs);
-      else this._pushStatus(alertMsg, true);
+      this._dispatchMsg(alertMsg, alertMs);
       // Bắt đầu vòng lặp TTS chỉ khi đây là cảnh báo MỚI (key khác với đang chạy)
       if (alertKey !== this._alertTtsKey) {
         this._startAlertTtsLoop(alertKey, alertMsg);
@@ -1545,14 +1543,16 @@ class SysDesk extends HTMLElement {
     const msgs = this._buildStatusMessages();
     this._statusMsgs = msgs;
     this._statusIdx  = 0;
-    this._showBubble(msgs[0]);
+    this._dispatchMsg(msgs[0], 5000);
   }
 
   _idleQuote() {
     const msgs = this._buildStatusMessages();
     this._statusMsgs = msgs;
     this._statusIdx  = 0;
-    if (!this._floating) this._showBubble(msgs[0]);
+    // Pin mode has its own _pinChatInterval rotation; only push to in-card if not pinned/floating.
+    if (this._floating)      this._floatTip(msgs[0], 5000);
+    else if (!this._pinned)  this._showBubble(msgs[0]);
   }
 
   // ── Nút báo cáo ─────────────────────────────────────────────
@@ -1603,8 +1603,7 @@ class SysDesk extends HTMLElement {
 
     // ── Hiển thị bubble: intro trước, rồi idle sau ──
     const combinedDisplay = `${reportIntro}<br><br>${idleMsg}`;
-    if (this._floating) this._floatTip(combinedDisplay, 8000);
-    else this._pushStatus(combinedDisplay, true);
+    this._dispatchMsg(combinedDisplay, 8000);
 
     // ── TTS: đọc intro trước, rồi đọc idle sau ──
     // Trong suốt thời gian đọc TTS, pause status rotation để bubble không bị thay thế
@@ -1653,6 +1652,15 @@ class SysDesk extends HTMLElement {
       this._statusIdx = this._statusMsgs.indexOf(msg);
       this._showBubble(msg);
     }
+  }
+
+  // Route a user-facing message to whichever bubble surface is currently visible.
+  // Without this, alerts in pin mode (when the in-card bubble is hidden by always_pinned)
+  // would only fire TTS audio with no visible cue.
+  _dispatchMsg(msg, ms = 4000) {
+    if (this._floating && this._floatTip)              this._floatTip(msg, ms);
+    else if (this._pinned && this._pinChatShow)        this._pinChatShow(msg);
+    else                                               this._pushStatus(msg, true);
   }
 
   _showBubble(html) {
