@@ -1148,14 +1148,16 @@ class SysDesk extends HTMLElement {
 
     // Track + dispose previous app for this canvas slot (model switch / reload).
     const slot = isFloat ? '_pinApp' : '_cardApp';
-    if (this[slot]) { try { this[slot].destroy(true, { children: true }); } catch (e) {} this[slot] = null; }
+    if (this[slot]) { try { this[slot].destroy(false, { children: true }); } catch (e) {} this[slot] = null; }
 
     const app = new window.PIXI.Application({
       view: canvas,
       width: w, height: h,
-      backgroundAlpha: 0,
+      backgroundAlpha: 0,            // PIXI v6: alpha 0 → transparent renderer clear
+      backgroundColor: 0x000000,     // belt-and-braces: black + alpha 0 = fully transparent
       antialias: true,
       autoStart: true,
+      premultipliedAlpha: false,
     });
     this[slot] = app;
 
@@ -1165,7 +1167,7 @@ class SysDesk extends HTMLElement {
     } catch (e) {
       console.error('[sysdesk] model load failed', m.path, e);
       // Destroy the partially-initialized app so subsequent retries get a clean canvas.
-      try { app.destroy(true, { children: true }); } catch (_) {}
+      try { app.destroy(false, { children: true }); } catch (_) {}
       this[slot] = null;
       return;
     }
@@ -1813,7 +1815,7 @@ class SysDesk extends HTMLElement {
     const w = this._config.width  || 400;
     const h = this._config.height || 440;
     // Destroy float overlay's PIXI app — _pinApp slot is shared between float & pin overlays.
-    if (this._pinApp) { try { this._pinApp.destroy(true, { children: true }); } catch (_) {} this._pinApp = null; }
+    if (this._pinApp) { try { this._pinApp.destroy(false, { children: true }); } catch (_) {} this._pinApp = null; }
     if (c) this._loadCanvas(c, this._modelIdx, w, h, false);
     this._pushStatus(_t('back_to_card', this._cn()), true);
   }
@@ -1929,7 +1931,7 @@ class SysDesk extends HTMLElement {
     const _card = this._shadow.querySelector('.sd-card');
     if (_card && _card.style.display === 'none') _card.style.display = '';
     // Destroy PIXI app first so WebGL context releases before the canvas DOM node is removed.
-    if (this._pinApp) { try { this._pinApp.destroy(true, { children: true }); } catch (_) {} this._pinApp = null; }
+    if (this._pinApp) { try { this._pinApp.destroy(false, { children: true }); } catch (_) {} this._pinApp = null; }
     if (this._pinEl) { this._pinEl.remove(); this._pinEl = null; }
     if (this._pinMouseMove) { document.removeEventListener('mousemove', this._pinMouseMove); this._pinMouseMove = null; }
     if (this._pinChatInterval) { clearInterval(this._pinChatInterval); this._pinChatInterval = null; }
@@ -2074,8 +2076,8 @@ class SysDesk extends HTMLElement {
     try { clearTimeout(this._reportLockTimer); } catch(e) {}
     try { this._stopAudio && this._stopAudio(); } catch(e) {}
     // Destroy PIXI apps so WebGL contexts release across view-cache cycles.
-    if (this._cardApp) { try { this._cardApp.destroy(true, { children: true }); } catch(_) {} this._cardApp = null; }
-    if (this._pinApp)  { try { this._pinApp .destroy(true, { children: true }); } catch(_) {} this._pinApp  = null; }
+    if (this._cardApp) { try { this._cardApp.destroy(false, { children: true }); } catch(_) {} this._cardApp = null; }
+    if (this._pinApp)  { try { this._pinApp .destroy(false, { children: true }); } catch(_) {} this._pinApp  = null; }
     try { document.getElementById('sd-float-overlay')?.remove(); } catch(e) {}
     try { document.getElementById('sd-pin-overlay')?.remove(); } catch(e) {}
     this._floatEl = null; this._pinEl = null;
