@@ -1165,11 +1165,8 @@ class SysDesk extends HTMLElement {
     if (lbl) lbl.textContent = m.name;
 
     const html = sdMakeL2dHtml(m.path, w, h, m.vOffset, m.scale);
-    const blob = new Blob([html], { type: 'text/html' });
-    const url  = URL.createObjectURL(blob);
 
     frame.onload = () => {
-      URL.revokeObjectURL(url);
       try {
         const doc = frame.contentDocument;
         doc.addEventListener('click', () => {
@@ -1182,8 +1179,10 @@ class SysDesk extends HTMLElement {
         doc.addEventListener('dblclick', () => { if (this._floating) this._exitFloating(); });
       } catch(e) {}
     };
-    frame.onerror = () => URL.revokeObjectURL(url);
-    frame.src = url;
+    // srcdoc embeds HTML directly into iframe attribute. Browser re-parses on iframe attach
+    // (including HA view-cache reattach via hui-root.ts:1180 removeChild + appendChild) → K2
+    // self-recovers without blob URL revoke issues.
+    frame.srcdoc = html;
 
     setTimeout(() => {
       if (this._skipGreetingPush) { this._skipGreetingPush = false; return; }
@@ -1913,6 +1912,19 @@ class SysDesk extends HTMLElement {
   connectedCallback() {
     if (this._floating && !document.getElementById('sd-float-overlay')) setTimeout(() => this._enterFloating(), 300);
     if (this._pinned   && !document.getElementById('sd-pin-overlay'))   setTimeout(() => this._enterPin(),    300);
+  }
+
+  // Clear setIntervals + remove overlays when HA detaches via view-cache mechanism
+  // (hui-root.ts:1180 removeChild). Without this, intervals fire on null DOM → crash.
+  disconnectedCallback() {
+    try { clearInterval(this._idleInterval); this._idleInterval = null; } catch(e) {}
+    try { clearInterval(this._statusInterval); this._statusInterval = null; } catch(e) {}
+    try { clearInterval(this._floatChatInterval); this._floatChatInterval = null; } catch(e) {}
+    try { clearTimeout(this._alertTtsTimer); } catch(e) {}
+    try { clearTimeout(this._reportLockTimer); } catch(e) {}
+    try { this._stopAudio && this._stopAudio(); } catch(e) {}
+    try { document.getElementById('sd-float-overlay')?.remove(); } catch(e) {}
+    try { document.getElementById('sd-pin-overlay')?.remove(); } catch(e) {}
   }
 
   // ── Helpers ─────────────────────────────────────────────────
