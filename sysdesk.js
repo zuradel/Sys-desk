@@ -764,8 +764,10 @@ function sdCardTemplate() {
   return `
 <style>
   :host{display:block;}
-  /* always_pinned mode: hide in-card character + toolbar from first paint (no flash). */
+  /* Config-driven UI hiding (set on host BEFORE innerHTML for first-paint correctness). */
   :host([data-always-pinned]) .sd-card{display:none !important;}
+  :host([data-hide-toolbar]) .sd-toolbar{display:none !important;}
+  :host([data-hide-toolbar]) .sd-wbtn{display:none !important;}
 
   .sd-card{
     background:transparent;
@@ -1069,10 +1071,12 @@ class SysDesk extends HTMLElement {
 
   // ── Render ─────────────────────────────────────────────────
   _render() {
-    // Set host attribute BEFORE innerHTML so CSS `:host([data-always-pinned])` rule applies
-    // on first paint of the shadow tree — eliminates in-card render flash.
+    // Set config-driven host attributes BEFORE innerHTML so CSS rules apply on first paint
+    // (no flash from runtime style mutation).
     if (this._config.always_pinned) this.setAttribute('data-always-pinned', '');
     else                            this.removeAttribute('data-always-pinned');
+    if (this._config.hide_toolbar)  this.setAttribute('data-hide-toolbar', '');
+    else                            this.removeAttribute('data-hide-toolbar');
     this._shadow.innerHTML = sdCardTemplate();
     const h = this._config.height || 440;
     const w = this._config.width  || 400;
@@ -1168,14 +1172,10 @@ class SysDesk extends HTMLElement {
     this._startStatusRotation();
     setTimeout(() => this._greet(), 3000);
 
-    // hide_toolbar: card config flag → hides ◀▶📊TTS⟳⬇📌✕ toolbar entirely.
-    if (this._config.hide_toolbar) {
-      const tb = this._shadow.querySelector('.sd-toolbar');
-      if (tb) tb.style.display = 'none';
-    }
+    // hide_toolbar + always_pinned now driven by `:host([data-*])` CSS rules set in the
+    // attribute block above — no runtime style mutation needed.
 
-    // always_pinned: card already hidden by `:host([data-always-pinned])` CSS rule (set before
-    // innerHTML in _render). Just enter pin mode on next microtask — no visible flash.
+    // always_pinned: card already hidden by CSS. Just enter pin mode on next microtask.
     if (this._config.always_pinned) {
       queueMicrotask(() => { if (!this._pinned) this._enterPin(); });
     } else {
