@@ -632,9 +632,11 @@ function sdMakeL2dHtml(modelPath, w, h, vOffset, scale) {
   vOffset = vOffset || 0;
   scale   = scale   || 1;
   return `<!DOCTYPE html><html><head><meta charset="utf-8">
+<meta name="color-scheme" content="dark">
 <style>
 *{margin:0;padding:0}
-html,body{width:${w}px;height:${h}px;overflow:hidden;background:transparent;}
+html{background:transparent !important;color-scheme:dark;}
+html,body{width:${w}px;height:${h}px;overflow:hidden;background:transparent !important;}
 canvas{display:block;position:absolute;top:0;left:0;}
 </style>
 </head><body>
@@ -1767,7 +1769,7 @@ class SysDesk extends HTMLElement {
         <div id="_sd_float_chat"><div id="_sd_float_chat_inner"></div></div>
         <iframe id="_sd_float_frame" width="${fw}" height="${fh}"
           scrolling="no" allowtransparency="true"
-          style="border:none;background:transparent;display:block;pointer-events:none;"></iframe>
+          style="border:none !important;background:transparent !important;background-color:transparent !important;color-scheme:dark;display:block;pointer-events:none;"></iframe>
       </div>`;
     document.body.appendChild(el);
     this._floatEl = el;
@@ -1888,7 +1890,7 @@ class SysDesk extends HTMLElement {
         <div id="_sd_pin_chat"><div id="_sd_pin_chat_inner"></div></div>
         <iframe id="_sd_pin_frame" width="${fw}" height="${fh}"
           scrolling="no" allowtransparency="true"
-          style="border:none;background:transparent;display:block;pointer-events:none;"></iframe>
+          style="border:none !important;background:transparent !important;background-color:transparent !important;color-scheme:dark;display:block;pointer-events:none;"></iframe>
       </div>`;
     document.body.appendChild(el);
     this._pinEl = el;
