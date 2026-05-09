@@ -627,75 +627,28 @@ function SD_MSGS() {
   };
 }
 
-// ─── iframe HTML cho Live2D ───────────────────────────────────
-function sdMakeL2dHtml(modelPath, w, h, vOffset, scale) {
-  vOffset = vOffset || 0;
-  scale   = scale   || 1;
-  return `<!DOCTYPE html><html><head><meta charset="utf-8">
-<meta name="color-scheme" content="dark">
-<style>
-*{margin:0;padding:0}
-html{background:transparent !important;color-scheme:dark;}
-html,body{width:${w}px;height:${h}px;overflow:hidden;background:transparent !important;}
-canvas{display:block;position:absolute;top:0;left:0;}
-</style>
-</head><body>
-<canvas id="live2d" width="${w}" height="${h}"></canvas>
-<script src="https://cdn.jsdelivr.net/npm/live2d-widget@3.1.4/lib/L2Dwidget.min.js"><\/script>
-<script>
-(function(){
-  function init(){
-    if(typeof L2Dwidget==='undefined'){setTimeout(init,100);return;}
-    L2Dwidget.init({
-      model:{jsonPath:'${modelPath}',scale:${scale}},
-      display:{position:'left',width:${w},height:${h},hOffset:0,vOffset:${vOffset}},
-      mobile:{show:true,scale:1},
-      react:{opacityDefault:1,opacityOnHover:1},
-      name:{canvas:'live2d',div:'__sd_dummy__'}
-    });
-    window.addEventListener('message', function(e){
-      if(!e.data || e.data.type !== 'sdEye') return;
-      try {
-        var cv = document.getElementById('live2d');
-        if(!cv || !cv.__model__) return;
-        var m = cv.__model__;
-        var ex = (e.data.px - 0.5) * 2;
-        var ey = (e.data.py - 0.5) * -2;
-        if(m.setParamFloat){
-          m.setParamFloat('PARAM_EYE_BALL_X', ex);
-          m.setParamFloat('PARAM_EYE_BALL_Y', ey);
-        } else if(m.live2DModel && m.live2DModel.setParamFloat){
-          m.live2DModel.setParamFloat('PARAM_EYE_BALL_X', ex);
-          m.live2DModel.setParamFloat('PARAM_EYE_BALL_Y', ey);
-        }
-      } catch(err){}
-    });
-    function detectAndReport(){
-      var cv = document.getElementById('live2d');
-      if(!cv) return;
-      try {
-        var ctx = cv.getContext('2d');
-        var imgData = ctx.getImageData(0,0,cv.width,cv.height);
-        var pixels = imgData.data;
-        var W = cv.width, H = cv.height;
-        var firstRow = 0;
-        outer: for(var y=0;y<H;y++){
-          for(var x=Math.floor(W*0.2);x<Math.floor(W*0.8);x++){
-            var idx=(y*W+x)*4;
-            if(pixels[idx+3]>20){firstRow=y;break outer;}
-          }
-        }
-        if(firstRow > 10){
-          parent.postMessage({type:'sdClip',top:firstRow,canvasH:H},'*');
-        }
-      } catch(e){}
-    }
-    [2000,3500,5000].forEach(function(t){setTimeout(detectAndReport,t);});
-  }
-  init();
-})();
-<\/script>
-</body></html>`;
+// ─── Live2D scripts (pixi-live2d-display) — lazy-loaded once globally ──────
+// Replaces iframe + L2Dwidget approach. Renders directly to a canvas in the host
+// document so HA view-cache reattach preserves WebGL state without remount tricks.
+const SD_LIVE2D_SCRIPTS = [
+  'https://cdn.jsdelivr.net/npm/pixi.js@6.5.10/dist/browser/pixi.min.js',
+  'https://cdn.jsdelivr.net/gh/dylanNew/live2d/webgl/Live2D/lib/live2d.min.js',
+  'https://cdn.jsdelivr.net/npm/pixi-live2d-display@0.4.0/dist/cubism2.min.js',
+];
+function sdEnsureLive2DScripts() {
+  if (window.__sdLive2DReady) return Promise.resolve();
+  if (window.__sdLive2DPromise) return window.__sdLive2DPromise;
+  window.__sdLive2DPromise = SD_LIVE2D_SCRIPTS.reduce((p, src) => p.then(() => new Promise((res, rej) => {
+    const s = document.createElement('script');
+    s.src = src; s.async = false;
+    s.onload  = res;
+    s.onerror = () => rej(new Error('[sysdesk] failed to load: ' + src));
+    document.head.appendChild(s);
+  })), Promise.resolve()).then(() => {
+    window.__sdLive2DReady = true;
+    if (!window.PIXI) window.PIXI = window.PIXI; // exposed by pixi.js browser bundle
+  });
+  return window.__sdLive2DPromise;
 }
 
 // ─── Float overlay CSS ────────────────────────────────────────
@@ -884,7 +837,7 @@ function sdCardTemplate() {
     text-shadow:0 1px 3px rgba(0,0,0,0.6);
   }
 
-  #sd-l2d-frame{border:none;background:transparent;display:block;z-index:2;flex-shrink:0;}
+  #sd-l2d-canvas{display:block;background:transparent;z-index:2;flex-shrink:0;}
 
   .sd-card-inner{
     border-radius:22px;
@@ -1008,7 +961,7 @@ function sdCardTemplate() {
       <div id="sd-badge-dropdown"></div>
     </div>
     <div id="sd-bubble-wrap"><div id="sd-bubble"></div></div>
-    <iframe id="sd-l2d-frame" scrolling="no" allowtransparency="true"></iframe>
+    <canvas id="sd-l2d-canvas"></canvas>
     <span class="model-label" id="sdModelLabel"></span>
   </div>
   <div class="sd-toolbar">
@@ -1096,32 +1049,30 @@ class SysDesk extends HTMLElement {
       }
     }
 
-    const frame = this._shadow.getElementById('sd-l2d-frame');
-    frame.setAttribute('width', w);
-    frame.setAttribute('height', h);
-    // hOffset: dương → dịch nhân vật sang phải, âm → sang trái (px)
+    const canvas = this._shadow.getElementById('sd-l2d-canvas');
+    canvas.width  = w;
+    canvas.height = h;
     const _hOff = SD_MODELS[this._modelIdx].hOffset || 0;
-    frame.style.cssText = 'width:' + w + 'px;height:' + h + 'px;border:none;background:transparent;display:block;z-index:2;transition:margin-top 0.3s ease;flex-shrink:0;margin-left:auto;position:relative;left:' + _hOff + 'px;';
-    // Skip in-card iframe load when always_pinned: card is hidden via CSS, no need to load
-    // Live2D into a frame the user never sees. Pin overlay handles all rendering.
-    if (!this._config.always_pinned) this._loadIntoFrame(frame, this._modelIdx, w, h, false);
+    canvas.style.cssText = 'width:' + w + 'px;height:' + h + 'px;background:transparent;display:block;z-index:2;transition:margin-top 0.3s ease;flex-shrink:0;margin-left:auto;position:relative;left:' + _hOff + 'px;';
+    // Skip in-card canvas load when always_pinned: card is hidden via CSS.
+    if (!this._config.always_pinned) this._loadCanvas(canvas, this._modelIdx, w, h, false);
 
     // Toolbar events
     this._shadow.getElementById('sdBtnPrev').onclick   = () => this._switchModelPrev();
     this._shadow.getElementById('sdBtnNext').onclick   = () => this._switchModelNext();
     this._shadow.getElementById('sdBtnQuote').onclick  = () => this._sysQuote();
     this._shadow.getElementById('sdBtnReload').onclick = () => {
-      const fr = this._shadow.getElementById('sd-l2d-frame');
-      if (fr) this._loadIntoFrame(fr, this._modelIdx, w, h, false);
+      const c = this._shadow.getElementById('sd-l2d-canvas');
+      if (c) this._loadCanvas(c, this._modelIdx, w, h, false);
       if (this._floating) {
-        const ff = document.getElementById('_sd_float_frame');
+        const fc = document.getElementById('_sd_float_canvas');
         const fh = this._config.float_height || 600; const fw = this._config.float_width || 380;
-        if (ff) this._loadIntoFrame(ff, this._modelIdx, fw, fh, true);
+        if (fc) this._loadCanvas(fc, this._modelIdx, fw, fh, true);
       }
       if (this._pinned) {
-        const fp = document.getElementById('_sd_pin_frame');
+        const pc = document.getElementById('_sd_pin_canvas');
         const fh = this._config.float_height || 600; const fw = this._config.float_width || 380;
-        if (fp) this._loadIntoFrame(fp, this._modelIdx, fw, fh, true);
+        if (pc) this._loadCanvas(pc, this._modelIdx, fw, fh, true);
       }
       this._pushStatus(_t('reload_done', this._cn()), true);
     };
@@ -1154,20 +1105,8 @@ class SysDesk extends HTMLElement {
       bp.textContent = _t('pin_btn_unpin'); bp.classList.add('green');
     }} catch(e) {}
 
-    // iframe clip listener
-    if (!this._msgListener) {
-      this._msgListener = (e) => {
-        if (!e.data || e.data.type !== 'sdClip') return;
-        const fr = this._shadow.getElementById('sd-l2d-frame');
-        if (!fr) return;
-        const extra = Math.round(e.data.top * 0.92);
-        const newH  = e.data.canvasH + extra;
-        fr.setAttribute('height', newH);
-        fr.style.height    = newH + 'px';
-        fr.style.marginTop = '-' + extra + 'px';
-      };
-      window.addEventListener('message', this._msgListener);
-    }
+    // (Iframe clip postMessage listener removed — pixi-live2d-display renders to canvas
+    //  directly, no cross-frame messaging needed.)
 
     if (this._idleInterval) clearInterval(this._idleInterval);
     this._idleInterval = setInterval(() => this._idleQuote(), 50000);
@@ -1187,34 +1126,67 @@ class SysDesk extends HTMLElement {
     }
   }
 
-  // ── Load model into iframe ──────────────────────────────────
-  _loadIntoFrame(frame, idx, w, h, isFloat) {
+  // ── Load model into canvas via pixi-live2d-display ─────────────────────────
+  // Replaces iframe + L2Dwidget approach. Canvas in light DOM (or shadow DOM —
+  // pixi accepts a DOM ref directly) survives HA view-cache reattach since the
+  // canvas element + its WebGL context are preserved across detach/reattach.
+  async _loadCanvas(canvas, idx, w, h, isFloat) {
     const m = SD_MODELS[idx];
     const lbl = this._shadow.getElementById('sdModelLabel');
     if (lbl) lbl.textContent = m.name;
 
-    const html = sdMakeL2dHtml(m.path, w, h, m.vOffset, m.scale);
+    canvas.width  = w;
+    canvas.height = h;
 
-    frame.onload = () => {
-      try {
-        const doc = frame.contentDocument;
-        doc.addEventListener('click', () => {
-          const tips = _t('char_click_tips', this._cn());
-          const msg = this._rand(tips);
-          if (isFloat) this._floatTip(msg, 3500);
-          else         this._pushStatus(msg, true);
-          this._playAudio(msg.replace(/[^\p{L}\p{N}\s]/gu, ''));
-        });
-        doc.addEventListener('dblclick', () => {
-          if (this._config.enable_modal) { this._openControlModal(); return; }
-          if (this._floating) this._exitFloating();
-        });
-      } catch(e) {}
+    try {
+      await sdEnsureLive2DScripts();
+    } catch (e) {
+      console.error('[sysdesk]', e);
+      return;
+    }
+    if (!window.PIXI || !window.PIXI.live2d) return;
+
+    // Track + dispose previous app for this canvas slot (model switch / reload).
+    const slot = isFloat ? '_pinApp' : '_cardApp';
+    if (this[slot]) { try { this[slot].destroy(true, { children: true }); } catch (e) {} this[slot] = null; }
+
+    const app = new window.PIXI.Application({
+      view: canvas,
+      width: w, height: h,
+      backgroundAlpha: 0,
+      antialias: true,
+      autoStart: true,
+    });
+    this[slot] = app;
+
+    let model;
+    try {
+      model = await window.PIXI.live2d.Live2DModel.from(m.path);
+    } catch (e) {
+      console.error('[sysdesk] model load failed', m.path, e);
+      return;
+    }
+    app.stage.addChild(model);
+
+    // Fit + center: shrink model so it fits inside canvas, then center horizontally.
+    const fit = Math.min(w / model.width, h / model.height) * (m.scale || 1);
+    model.scale.set(fit);
+    model.x = (w - model.width)  / 2;
+    model.y = (h - model.height) / 2 + (m.vOffset || 0);
+
+    // Click + dblclick directly on canvas (no postMessage needed across iframe boundary).
+    canvas.style.pointerEvents = 'auto';
+    canvas.onclick = () => {
+      const tips = _t('char_click_tips', this._cn());
+      const msg = this._rand(tips);
+      if (isFloat) this._floatTip(msg, 3500);
+      else         this._pushStatus(msg, true);
+      this._playAudio(msg.replace(/[^\p{L}\p{N}\s]/gu, ''));
     };
-    // srcdoc embeds HTML directly into iframe attribute. Browser re-parses on iframe attach
-    // (including HA view-cache reattach via hui-root.ts:1180 removeChild + appendChild) → K2
-    // self-recovers without blob URL revoke issues.
-    frame.srcdoc = html;
+    canvas.ondblclick = () => {
+      if (this._config.enable_modal) { this._openControlModal(); return; }
+      if (this._floating) this._exitFloating();
+    };
 
     setTimeout(() => {
       if (this._skipGreetingPush) { this._skipGreetingPush = false; return; }
@@ -1720,21 +1692,20 @@ class SysDesk extends HTMLElement {
 
   _reloadCharFrame() {
     if (this._floating) {
-      const ff = document.getElementById('_sd_float_frame');
-      if (ff) { const fh = this._config.float_height || 600, fw = this._config.float_width || 380; this._loadIntoFrame(ff, this._modelIdx, fw, fh, true); }
+      const fc = document.getElementById('_sd_float_canvas');
+      if (fc) { const fh = this._config.float_height || 600, fw = this._config.float_width || 380; this._loadCanvas(fc, this._modelIdx, fw, fh, true); }
     } else if (this._pinned) {
-      const fp = document.getElementById('_sd_pin_frame');
-      if (fp) { const fh = this._config.float_height || 600, fw = this._config.float_width || 380; this._loadIntoFrame(fp, this._modelIdx, fw, fh, true); }
+      const pc = document.getElementById('_sd_pin_canvas');
+      if (pc) { const fh = this._config.float_height || 600, fw = this._config.float_width || 380; this._loadCanvas(pc, this._modelIdx, fw, fh, true); }
     } else {
-      const frame = this._shadow.getElementById('sd-l2d-frame');
+      const c = this._shadow.getElementById('sd-l2d-canvas');
       const h = this._config.height || 440, w = this._config.width || 400;
-      if (frame) {
+      if (c) {
         const _hOff2 = SD_MODELS[this._modelIdx].hOffset || 0;
-        frame.style.left = _hOff2 + 'px';
-        this._loadIntoFrame(frame, this._modelIdx, w, h, false);
+        c.style.left = _hOff2 + 'px';
+        this._loadCanvas(c, this._modelIdx, w, h, false);
       }
     }
-    // Cập nhật label cho float/pin
     const lbl = this._shadow.getElementById('sdModelLabel');
     if (lbl) lbl.textContent = SD_MODELS[this._modelIdx].name;
   }
@@ -1767,15 +1738,14 @@ class SysDesk extends HTMLElement {
       </div>
       <div id="sd-float-char">
         <div id="_sd_float_chat"><div id="_sd_float_chat_inner"></div></div>
-        <iframe id="_sd_float_frame" width="${fw}" height="${fh}"
-          scrolling="no" allowtransparency="true"
-          style="border:none !important;background:transparent !important;background-color:transparent !important;color-scheme:dark;display:block;pointer-events:none;"></iframe>
+        <canvas id="_sd_float_canvas" width="${fw}" height="${fh}"
+          style="background:transparent;display:block;"></canvas>
       </div>`;
     document.body.appendChild(el);
     this._floatEl = el;
 
-    const ff = document.getElementById('_sd_float_frame');
-    this._loadIntoFrame(ff, this._modelIdx, fw, fh, true);
+    const fc = document.getElementById('_sd_float_canvas');
+    this._loadCanvas(fc, this._modelIdx, fw, fh, true);
 
     document.getElementById('_sd_fbtn_restore').onclick = () => this._exitFloating();
     document.getElementById('_sd_fbtn_prev').onclick    = () => this._switchModelPrev();
@@ -1794,13 +1764,8 @@ class SysDesk extends HTMLElement {
       this._exitFloating();
     });
 
-    this._floatMouseMove = (e) => {
-      const fr = document.getElementById('_sd_float_frame');
-      if (!fr) return;
-      const rect = fr.getBoundingClientRect();
-      try { fr.contentWindow.postMessage({ type: 'sdEye', px: (e.clientX - rect.left) / rect.width, py: (e.clientY - rect.top) / rect.height }, '*'); } catch(err) {}
-    };
-    document.addEventListener('mousemove', this._floatMouseMove);
+    // (No mouse-eye postMessage — pixi-live2d-display has FocusController built-in.)
+    this._floatMouseMove = null;
 
     this._floatChatShow = (msg) => {
       const wrap  = document.getElementById('_sd_float_chat');
@@ -1833,9 +1798,9 @@ class SysDesk extends HTMLElement {
     if (this._floatChatInterval) { clearInterval(this._floatChatInterval); this._floatChatInterval = null; }
     this._floatChatMsgs = null; this._floatChatIdx = 0;
     this._shadow.querySelector('.sd-card').style.display = '';
-    const frame = this._shadow.getElementById('sd-l2d-frame');
+    const c = this._shadow.getElementById('sd-l2d-canvas');
     const h = this._config.height || 440;
-    this._loadIntoFrame(frame, this._modelIdx, 400, h, false);
+    if (c) this._loadCanvas(c, this._modelIdx, 400, h, false);
     this._pushStatus(_t('back_to_card', this._cn()), true);
   }
 
@@ -1888,15 +1853,14 @@ class SysDesk extends HTMLElement {
       ${pinControlsHtml}
       <div id="sd-pin-char">
         <div id="_sd_pin_chat"><div id="_sd_pin_chat_inner"></div></div>
-        <iframe id="_sd_pin_frame" width="${fw}" height="${fh}"
-          scrolling="no" allowtransparency="true"
-          style="border:none !important;background:transparent !important;background-color:transparent !important;color-scheme:dark;display:block;pointer-events:none;"></iframe>
+        <canvas id="_sd_pin_canvas" width="${fw}" height="${fh}"
+          style="background:transparent;display:block;"></canvas>
       </div>`;
     document.body.appendChild(el);
     this._pinEl = el;
 
-    const fp = document.getElementById('_sd_pin_frame');
-    this._loadIntoFrame(fp, this._modelIdx, fw, fh, true);
+    const pc = document.getElementById('_sd_pin_canvas');
+    this._loadCanvas(pc, this._modelIdx, fw, fh, true);
 
     const _unpinBtn = document.getElementById('_sd_pbtn_unpin');
     if (_unpinBtn) _unpinBtn.onclick = () => this._exitPin();
@@ -1918,13 +1882,8 @@ class SysDesk extends HTMLElement {
       if (this._config.enable_modal) this._openControlModal();
     });
 
-    this._pinMouseMove = (e) => {
-      const f = document.getElementById('_sd_pin_frame');
-      if (!f) return;
-      const rect = f.getBoundingClientRect();
-      try { f.contentWindow.postMessage({ type: 'sdEye', px: (e.clientX - rect.left) / rect.width, py: (e.clientY - rect.top) / rect.height }, '*'); } catch(err) {}
-    };
-    document.addEventListener('mousemove', this._pinMouseMove);
+    // (No mouse-eye postMessage — pixi-live2d-display has FocusController built-in.)
+    this._pinMouseMove = null;
 
     this._pinChatShow = (msg) => {
       const wrap  = document.getElementById('_sd_pin_chat');
