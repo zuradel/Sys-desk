@@ -805,8 +805,7 @@ function sdCardTemplate() {
     text-shadow:0 1px 3px rgba(0,0,0,0.6);
   }
 
-  /* Slotted canvas (Live2D) — light DOM <canvas> projected into waifu-area via default slot */
-  ::slotted(canvas){display:block;background:transparent;z-index:2;flex-shrink:0;}
+  #sd-l2d-frame{border:none;background:transparent;display:block;z-index:2;flex-shrink:0;}
 
   .sd-card-inner{
     border-radius:22px;
@@ -930,9 +929,7 @@ function sdCardTemplate() {
       <div id="sd-badge-dropdown"></div>
     </div>
     <div id="sd-bubble-wrap"><div id="sd-bubble"></div></div>
-    <!-- Default slot projects light DOM canvas (added in _render) into waifu-area
-         so L2Dwidget can find it via document.getElementById. -->
-    <slot></slot>
+    <!-- Canvas mounted in light DOM (host's children) for L2Dwidget compatibility. -->
     <span class="model-label" id="sdModelLabel"></span>
   </div>
   <div class="sd-toolbar">
