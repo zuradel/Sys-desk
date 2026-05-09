@@ -1845,6 +1845,11 @@ class SysDesk extends HTMLElement {
     try { localStorage.setItem('sd_pinned', '1'); } catch(e) {}
     const btn = this._shadow.getElementById('sdBtnPin');
     if (btn) { btn.textContent = _t('pin_btn_unpin'); btn.classList.add('green'); }
+    // always_pinned: hide in-card character to avoid duplicate render (card + pin overlay both showed K2).
+    if (this._config.always_pinned) {
+      const _card = this._shadow.querySelector('.sd-card');
+      if (_card) _card.style.display = 'none';
+    }
 
     const fh = this._config.float_height || 600;
     const fw = this._config.float_width  || 380;
@@ -1929,6 +1934,9 @@ class SysDesk extends HTMLElement {
     try { localStorage.removeItem('sd_pinned'); } catch(e) {}
     const btn = this._shadow.getElementById('sdBtnPin');
     if (btn) { btn.textContent = _t('pin_btn_pin'); btn.classList.remove('green'); }
+    // Restore card visibility if hidden by always_pinned entry.
+    const _card = this._shadow.querySelector('.sd-card');
+    if (_card && _card.style.display === 'none') _card.style.display = '';
     if (this._pinEl) { this._pinEl.remove(); this._pinEl = null; }
     if (this._pinMouseMove) { document.removeEventListener('mousemove', this._pinMouseMove); this._pinMouseMove = null; }
     if (this._pinChatInterval) { clearInterval(this._pinChatInterval); this._pinChatInterval = null; }
