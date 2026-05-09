@@ -621,74 +621,7 @@ function SD_MSGS() {
   };
 }
 
-// ─── iframe HTML cho Live2D ───────────────────────────────────
-function sdMakeL2dHtml(modelPath, w, h, vOffset, scale) {
-  vOffset = vOffset || 0;
-  scale   = scale   || 1;
-  return `<!DOCTYPE html><html><head><meta charset="utf-8">
-<style>
-*{margin:0;padding:0}
-html,body{width:${w}px;height:${h}px;overflow:hidden;background:transparent;}
-canvas{display:block;position:absolute;top:0;left:0;}
-</style>
-</head><body>
-<canvas id="live2d" width="${w}" height="${h}"></canvas>
-<script src="https://cdn.jsdelivr.net/npm/live2d-widget@3.1.4/lib/L2Dwidget.min.js"><\/script>
-<script>
-(function(){
-  function init(){
-    if(typeof L2Dwidget==='undefined'){setTimeout(init,100);return;}
-    L2Dwidget.init({
-      model:{jsonPath:'${modelPath}',scale:${scale}},
-      display:{position:'left',width:${w},height:${h},hOffset:0,vOffset:${vOffset}},
-      mobile:{show:true,scale:1},
-      react:{opacityDefault:1,opacityOnHover:1},
-      name:{canvas:'live2d',div:'__sd_dummy__'}
-    });
-    window.addEventListener('message', function(e){
-      if(!e.data || e.data.type !== 'sdEye') return;
-      try {
-        var cv = document.getElementById('live2d');
-        if(!cv || !cv.__model__) return;
-        var m = cv.__model__;
-        var ex = (e.data.px - 0.5) * 2;
-        var ey = (e.data.py - 0.5) * -2;
-        if(m.setParamFloat){
-          m.setParamFloat('PARAM_EYE_BALL_X', ex);
-          m.setParamFloat('PARAM_EYE_BALL_Y', ey);
-        } else if(m.live2DModel && m.live2DModel.setParamFloat){
-          m.live2DModel.setParamFloat('PARAM_EYE_BALL_X', ex);
-          m.live2DModel.setParamFloat('PARAM_EYE_BALL_Y', ey);
-        }
-      } catch(err){}
-    });
-    function detectAndReport(){
-      var cv = document.getElementById('live2d');
-      if(!cv) return;
-      try {
-        var ctx = cv.getContext('2d');
-        var imgData = ctx.getImageData(0,0,cv.width,cv.height);
-        var pixels = imgData.data;
-        var W = cv.width, H = cv.height;
-        var firstRow = 0;
-        outer: for(var y=0;y<H;y++){
-          for(var x=Math.floor(W*0.2);x<Math.floor(W*0.8);x++){
-            var idx=(y*W+x)*4;
-            if(pixels[idx+3]>20){firstRow=y;break outer;}
-          }
-        }
-        if(firstRow > 10){
-          parent.postMessage({type:'sdClip',top:firstRow,canvasH:H},'*');
-        }
-      } catch(e){}
-    }
-    [2000,3500,5000].forEach(function(t){setTimeout(detectAndReport,t);});
-  }
-  init();
-})();
-<\/script>
-</body></html>`;
-}
+// (Removed sdMakeL2dHtml — iframe approach replaced by direct canvas mount via _loadCanvas.)
 
 // ─── Float overlay CSS ────────────────────────────────────────
 const SD_FLOAT_CSS = `
@@ -996,7 +929,7 @@ function sdCardTemplate() {
       <div id="sd-badge-dropdown"></div>
     </div>
     <div id="sd-bubble-wrap"><div id="sd-bubble"></div></div>
-    <iframe id="sd-l2d-frame" scrolling="no" allowtransparency="true"></iframe>
+    <!-- Canvas mounted in light DOM (host's children) for L2Dwidget compatibility. -->
     <span class="model-label" id="sdModelLabel"></span>
   </div>
   <div class="sd-toolbar">
@@ -1048,6 +981,28 @@ class SysDesk extends HTMLElement {
     this._alertTtsMsg     = null;   // TTS message currently looping
     this._alertTtsTimer   = null;   // setTimeout handle for the loop
     this._alertTtsRunning = false;  // flag: loop is running
+    // Canvas refactor: each instance has unique IDs for its canvases (main + floating + pin).
+    // Canvas mounted in LIGHT DOM (document.getElementById accessible) so L2Dwidget can find it.
+    this._uid             = Math.random().toString(36).slice(2, 10);
+    this._canvasId        = 'sd-l2d-canvas-' + this._uid;
+    this._floatCanvasId   = '_sd_float_canvas_' + this._uid;
+    this._pinCanvasId     = '_sd_pin_canvas_'   + this._uid;
+  }
+
+  // Lazy-load L2Dwidget.min.js once globally (script tag in document.head).
+  // Returns Promise that resolves when L2Dwidget global is ready.
+  _ensureL2DScript() {
+    if (window.__sdL2DScriptLoaded) return Promise.resolve();
+    if (window.__sdL2DScriptPromise) return window.__sdL2DScriptPromise;
+    window.__sdL2DScriptPromise = new Promise((resolve, reject) => {
+      const s = document.createElement('script');
+      s.src = 'https://cdn.jsdelivr.net/npm/live2d-widget@3.1.4/lib/L2Dwidget.min.js';
+      s.async = true;
+      s.onload  = () => { window.__sdL2DScriptLoaded = true; resolve(); };
+      s.onerror = (e) => reject(new Error('L2Dwidget script failed to load'));
+      document.head.appendChild(s);
+    });
+    return window.__sdL2DScriptPromise;
   }
 
   setConfig(config) { this._config = config; this._render(); }
@@ -1078,30 +1033,39 @@ class SysDesk extends HTMLElement {
       }
     }
 
-    const frame = this._shadow.getElementById('sd-l2d-frame');
-    frame.setAttribute('width', w);
-    frame.setAttribute('height', h);
-    // hOffset: dương → dịch nhân vật sang phải, âm → sang trái (px)
+    // Canvas in LIGHT DOM (host children, NOT shadow). L2Dwidget needs document.getElementById.
+    // Persists across HA view-cache reattach (canvas state preserved by browser).
+    let canvas = this.querySelector(':scope > #' + this._canvasId);
+    if (!canvas) {
+      canvas = document.createElement('canvas');
+      canvas.id = this._canvasId;
+      this.appendChild(canvas);
+    }
     const _hOff = SD_MODELS[this._modelIdx].hOffset || 0;
-    frame.style.cssText = 'width:' + w + 'px;height:' + h + 'px;border:none;background:transparent;display:block;z-index:2;transition:margin-top 0.3s ease;flex-shrink:0;margin-left:auto;position:relative;left:' + _hOff + 'px;';
-    this._loadIntoFrame(frame, this._modelIdx, w, h, false);
+    // Position canvas absolute over host (sys-desk element). Host needs position:relative (set via card style).
+    canvas.style.cssText = 'position:absolute;top:0;right:0;width:' + w + 'px;height:' + h + 'px;display:block;background:transparent;pointer-events:none;z-index:1;transform:translateX(' + _hOff + 'px);';
+    canvas.width  = w;
+    canvas.height = h;
+    this._loadCanvas(canvas, this._modelIdx, w, h, false);
+    // Ensure host is positioned so canvas absolute works.
+    if (!this.style.position) this.style.position = 'relative';
 
     // Toolbar events
     this._shadow.getElementById('sdBtnPrev').onclick   = () => this._switchModelPrev();
     this._shadow.getElementById('sdBtnNext').onclick   = () => this._switchModelNext();
     this._shadow.getElementById('sdBtnQuote').onclick  = () => this._sysQuote();
     this._shadow.getElementById('sdBtnReload').onclick = () => {
-      const fr = this._shadow.getElementById('sd-l2d-frame');
-      if (fr) this._loadIntoFrame(fr, this._modelIdx, w, h, false);
+      const c = this.querySelector(':scope > #' + this._canvasId);
+      if (c) this._loadCanvas(c, this._modelIdx, w, h, false);
       if (this._floating) {
-        const ff = document.getElementById('_sd_float_frame');
+        const fc = document.getElementById(this._floatCanvasId);
         const fh = this._config.float_height || 600; const fw = this._config.float_width || 380;
-        if (ff) this._loadIntoFrame(ff, this._modelIdx, fw, fh, true);
+        if (fc) this._loadCanvas(fc, this._modelIdx, fw, fh, true);
       }
       if (this._pinned) {
-        const fp = document.getElementById('_sd_pin_frame');
+        const fp = document.getElementById(this._pinCanvasId);
         const fh = this._config.float_height || 600; const fw = this._config.float_width || 380;
-        if (fp) this._loadIntoFrame(fp, this._modelIdx, fw, fh, true);
+        if (fp) this._loadCanvas(fp, this._modelIdx, fw, fh, true);
       }
       this._pushStatus(_t('reload_done', this._cn()), true);
     };
@@ -1134,20 +1098,7 @@ class SysDesk extends HTMLElement {
       bp.textContent = _t('pin_btn_unpin'); bp.classList.add('green');
     }} catch(e) {}
 
-    // iframe clip listener
-    if (!this._msgListener) {
-      this._msgListener = (e) => {
-        if (!e.data || e.data.type !== 'sdClip') return;
-        const fr = this._shadow.getElementById('sd-l2d-frame');
-        if (!fr) return;
-        const extra = Math.round(e.data.top * 0.92);
-        const newH  = e.data.canvasH + extra;
-        fr.setAttribute('height', newH);
-        fr.style.height    = newH + 'px';
-        fr.style.marginTop = '-' + extra + 'px';
-      };
-      window.addEventListener('message', this._msgListener);
-    }
+    // Iframe clip listener removed: canvas in same document, no postMessage needed.
 
     if (this._idleInterval) clearInterval(this._idleInterval);
     this._idleInterval = setInterval(() => this._idleQuote(), 50000);
@@ -1158,32 +1109,38 @@ class SysDesk extends HTMLElement {
     try { if (localStorage.getItem('sd_pinned')   === '1') setTimeout(() => this._enterPin(), 600); } catch(e) {}
   }
 
-  // ── Load model into iframe ──────────────────────────────────
-  _loadIntoFrame(frame, idx, w, h, isFloat) {
+  // ── Load model into canvas (replaces iframe approach) ──────────────
+  // Canvas is in light DOM; L2Dwidget mounts directly. Survives view-cache reattach.
+  _loadCanvas(canvas, idx, w, h, isFloat) {
     const m = SD_MODELS[idx];
     const lbl = this._shadow.getElementById('sdModelLabel');
     if (lbl) lbl.textContent = m.name;
 
-    const html = sdMakeL2dHtml(m.path, w, h, m.vOffset, m.scale);
-    const blob = new Blob([html], { type: 'text/html' });
-    const url  = URL.createObjectURL(blob);
+    canvas.width  = w;
+    canvas.height = h;
 
-    frame.onload = () => {
-      URL.revokeObjectURL(url);
-      try {
-        const doc = frame.contentDocument;
-        doc.addEventListener('click', () => {
-          const tips = _t('char_click_tips', this._cn());
-          const msg = this._rand(tips);
-          if (isFloat) this._floatTip(msg, 3500);
-          else         this._pushStatus(msg, true);
-          this._playAudio(msg.replace(/[^\p{L}\p{N}\s]/gu, ''));
-        });
-        doc.addEventListener('dblclick', () => { if (this._floating) this._exitFloating(); });
-      } catch(e) {}
+    // Direct click handler on canvas (replaces iframe doc click via postMessage).
+    canvas.style.pointerEvents = 'auto';
+    canvas.onclick = () => {
+      const tips = _t('char_click_tips', this._cn());
+      const msg  = this._rand(tips);
+      if (isFloat) this._floatTip(msg, 3500);
+      else         this._pushStatus(msg, true);
+      this._playAudio(msg.replace(/[^\p{L}\p{N}\s]/gu, ''));
     };
-    frame.onerror = () => URL.revokeObjectURL(url);
-    frame.src = url;
+    canvas.ondblclick = () => { if (this._floating) this._exitFloating(); };
+
+    this._ensureL2DScript().then(() => {
+      if (window.L2Dwidget && window.L2Dwidget.init) {
+        window.L2Dwidget.init({
+          model:   { jsonPath: m.path, scale: m.scale || 1 },
+          display: { position: 'left', width: w, height: h, hOffset: 0, vOffset: m.vOffset || 0 },
+          mobile:  { show: true, scale: 1 },
+          react:   { opacityDefault: 1, opacityOnHover: 1 },
+          name:    { canvas: canvas.id, div: '__sd_dummy_' + canvas.id }
+        });
+      }
+    }).catch(e => console.warn('[sysdesk] L2Dwidget init failed:', e));
 
     setTimeout(() => {
       if (this._skipGreetingPush) { this._skipGreetingPush = false; return; }
@@ -1689,21 +1646,20 @@ class SysDesk extends HTMLElement {
 
   _reloadCharFrame() {
     if (this._floating) {
-      const ff = document.getElementById('_sd_float_frame');
-      if (ff) { const fh = this._config.float_height || 600, fw = this._config.float_width || 380; this._loadIntoFrame(ff, this._modelIdx, fw, fh, true); }
+      const fc = document.getElementById(this._floatCanvasId);
+      if (fc) { const fh = this._config.float_height || 600, fw = this._config.float_width || 380; this._loadCanvas(fc, this._modelIdx, fw, fh, true); }
     } else if (this._pinned) {
-      const fp = document.getElementById('_sd_pin_frame');
-      if (fp) { const fh = this._config.float_height || 600, fw = this._config.float_width || 380; this._loadIntoFrame(fp, this._modelIdx, fw, fh, true); }
+      const pc = document.getElementById(this._pinCanvasId);
+      if (pc) { const fh = this._config.float_height || 600, fw = this._config.float_width || 380; this._loadCanvas(pc, this._modelIdx, fw, fh, true); }
     } else {
-      const frame = this._shadow.getElementById('sd-l2d-frame');
+      const c = this.querySelector(':scope > #' + this._canvasId);
       const h = this._config.height || 440, w = this._config.width || 400;
-      if (frame) {
+      if (c) {
         const _hOff2 = SD_MODELS[this._modelIdx].hOffset || 0;
-        frame.style.left = _hOff2 + 'px';
-        this._loadIntoFrame(frame, this._modelIdx, w, h, false);
+        c.style.transform = 'translateX(' + _hOff2 + 'px)';
+        this._loadCanvas(c, this._modelIdx, w, h, false);
       }
     }
-    // Cập nhật label cho float/pin
     const lbl = this._shadow.getElementById('sdModelLabel');
     if (lbl) lbl.textContent = SD_MODELS[this._modelIdx].name;
   }
@@ -1736,15 +1692,14 @@ class SysDesk extends HTMLElement {
       </div>
       <div id="sd-float-char">
         <div id="_sd_float_chat"><div id="_sd_float_chat_inner"></div></div>
-        <iframe id="_sd_float_frame" width="${fw}" height="${fh}"
-          scrolling="no" allowtransparency="true"
-          style="border:none;background:transparent;display:block;pointer-events:none;"></iframe>
+        <canvas id="${this._floatCanvasId}" width="${fw}" height="${fh}"
+          style="border:none;background:transparent;display:block;"></canvas>
       </div>`;
     document.body.appendChild(el);
     this._floatEl = el;
 
-    const ff = document.getElementById('_sd_float_frame');
-    this._loadIntoFrame(ff, this._modelIdx, fw, fh, true);
+    const fc = document.getElementById(this._floatCanvasId);
+    this._loadCanvas(fc, this._modelIdx, fw, fh, true);
 
     document.getElementById('_sd_fbtn_restore').onclick = () => this._exitFloating();
     document.getElementById('_sd_fbtn_prev').onclick    = () => this._switchModelPrev();
@@ -1760,13 +1715,8 @@ class SysDesk extends HTMLElement {
     });
     document.getElementById('sd-float-char').addEventListener('dblclick', () => this._exitFloating());
 
-    this._floatMouseMove = (e) => {
-      const fr = document.getElementById('_sd_float_frame');
-      if (!fr) return;
-      const rect = fr.getBoundingClientRect();
-      try { fr.contentWindow.postMessage({ type: 'sdEye', px: (e.clientX - rect.left) / rect.width, py: (e.clientY - rect.top) / rect.height }, '*'); } catch(err) {}
-    };
-    document.addEventListener('mousemove', this._floatMouseMove);
+    // L2Dwidget v3.1.4 binds its own mouse tracking on canvas in same document; no postMessage needed.
+    this._floatMouseMove = null;
 
     this._floatChatShow = (msg) => {
       const wrap  = document.getElementById('_sd_float_chat');
@@ -1799,9 +1749,9 @@ class SysDesk extends HTMLElement {
     if (this._floatChatInterval) { clearInterval(this._floatChatInterval); this._floatChatInterval = null; }
     this._floatChatMsgs = null; this._floatChatIdx = 0;
     this._shadow.querySelector('.sd-card').style.display = '';
-    const frame = this._shadow.getElementById('sd-l2d-frame');
+    const c = this.querySelector(':scope > #' + this._canvasId);
     const h = this._config.height || 440;
-    this._loadIntoFrame(frame, this._modelIdx, 400, h, false);
+    if (c) this._loadCanvas(c, this._modelIdx, 400, h, false);
     this._pushStatus(_t('back_to_card', this._cn()), true);
   }
 
@@ -1846,15 +1796,14 @@ class SysDesk extends HTMLElement {
       </div>
       <div id="sd-pin-char">
         <div id="_sd_pin_chat"><div id="_sd_pin_chat_inner"></div></div>
-        <iframe id="_sd_pin_frame" width="${fw}" height="${fh}"
-          scrolling="no" allowtransparency="true"
-          style="border:none;background:transparent;display:block;pointer-events:none;"></iframe>
+        <canvas id="${this._pinCanvasId}" width="${fw}" height="${fh}"
+          style="border:none;background:transparent;display:block;"></canvas>
       </div>`;
     document.body.appendChild(el);
     this._pinEl = el;
 
-    const fp = document.getElementById('_sd_pin_frame');
-    this._loadIntoFrame(fp, this._modelIdx, fw, fh, true);
+    const pc = document.getElementById(this._pinCanvasId);
+    this._loadCanvas(pc, this._modelIdx, fw, fh, true);
 
     document.getElementById('_sd_pbtn_unpin').onclick = () => this._exitPin();
     document.getElementById('_sd_pbtn_prev').onclick  = () => this._switchModelPrev();
@@ -1870,13 +1819,8 @@ class SysDesk extends HTMLElement {
       setTimeout(() => { inner.innerHTML = msg; wrap.classList.add('show'); }, 160);
     });
 
-    this._pinMouseMove = (e) => {
-      const f = document.getElementById('_sd_pin_frame');
-      if (!f) return;
-      const rect = f.getBoundingClientRect();
-      try { f.contentWindow.postMessage({ type: 'sdEye', px: (e.clientX - rect.left) / rect.width, py: (e.clientY - rect.top) / rect.height }, '*'); } catch(err) {}
-    };
-    document.addEventListener('mousemove', this._pinMouseMove);
+    // L2Dwidget v3.1.4 binds its own mouse tracking on canvas; no postMessage needed.
+    this._pinMouseMove = null;
 
     this._pinChatShow = (msg) => {
       const wrap  = document.getElementById('_sd_pin_chat');
@@ -1913,6 +1857,20 @@ class SysDesk extends HTMLElement {
   connectedCallback() {
     if (this._floating && !document.getElementById('sd-float-overlay')) setTimeout(() => this._enterFloating(), 300);
     if (this._pinned   && !document.getElementById('sd-pin-overlay'))   setTimeout(() => this._enterPin(),    300);
+  }
+
+  // Clear setIntervals + remove global overlays when HA detaches the card
+  // (e.g., view-cache mechanism in hui-root.ts swaps cached views via removeChild).
+  // Without this, intervals fire on disconnected element → null DOM crashes.
+  disconnectedCallback() {
+    try { clearInterval(this._idleInterval); this._idleInterval = null; } catch(e) {}
+    try { clearInterval(this._statusInterval); this._statusInterval = null; } catch(e) {}
+    try { clearInterval(this._floatChatInterval); this._floatChatInterval = null; } catch(e) {}
+    try { clearTimeout(this._alertTtsTimer); } catch(e) {}
+    try { clearTimeout(this._reportLockTimer); } catch(e) {}
+    try { this._stopAudio && this._stopAudio(); } catch(e) {}
+    try { document.getElementById('sd-float-overlay')?.remove(); } catch(e) {}
+    try { document.getElementById('sd-pin-overlay')?.remove(); } catch(e) {}
   }
 
   // ── Helpers ─────────────────────────────────────────────────
