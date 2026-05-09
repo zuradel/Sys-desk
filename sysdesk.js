@@ -584,14 +584,16 @@ const SD_SERVER_SENSORS = {
 const SD_ALL_SENSORS = Object.values(SD_SERVER_SENSORS).flat();
 
 // ─── Các dịch vụ / AP cần theo dõi trạng thái ────────────────
+// Default list giữ tối thiểu (chỉ adguard); người dùng tự thêm wifi/AP qua `custom_services`
+// trong card config để tránh "DOWN" warnings nếu entity không tồn tại.
 const SD_SERVICES = [
-  { key:'adguard', entity:'switch.adguard_home_protection', label:'AdGuard'       },
-  { key:'wifi_5',  entity:'sensor.5_office_state',          label:'WiFi Office'   },
-  { key:'wifi_6',  entity:'sensor.6_living_state',          label:'WiFi Living'   },
-  { key:'wifi_7',  entity:'sensor.7_kitchen_state',         label:'WiFi Kitchen'  },
-  { key:'wifi_8',  entity:'sensor.8_garage_state',          label:'WiFi Garage'   },
-  { key:'wifi_9',  entity:'sensor.9_outside_state',         label:'WiFi Outside'  },
-  { key:'nano_hd', entity:'sensor.nano_hd_state',           label:'Nano HD AP'    },
+  { key:'adguard', entity:'switch.adguard_home_protection', label:'AdGuard' },
+  // { key:'wifi_5',  entity:'sensor.5_office_state',   label:'WiFi Office'  },
+  // { key:'wifi_6',  entity:'sensor.6_living_state',   label:'WiFi Living'  },
+  // { key:'wifi_7',  entity:'sensor.7_kitchen_state',  label:'WiFi Kitchen' },
+  // { key:'wifi_8',  entity:'sensor.8_garage_state',   label:'WiFi Garage'  },
+  // { key:'wifi_9',  entity:'sensor.9_outside_state',  label:'WiFi Outside' },
+  // { key:'nano_hd', entity:'sensor.nano_hd_state',    label:'Nano HD AP'   },
 ];
 
 // ─── Pool tin nhắn cảnh báo (i18n-aware getter) ─────────────────
