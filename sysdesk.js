@@ -712,6 +712,41 @@ const SD_PIN_CSS = `
   border:9px solid transparent;border-left-color:rgba(80,160,255,0.6);border-right:none;}
 #_sd_pin_chat_inner::before{content:'';position:absolute;top:50%;right:-15px;transform:translateY(-50%);
   border:7px solid transparent;border-left-color:rgba(10,20,50,0.92);border-right:none;z-index:1;}
+
+/* Status badge mirrored into pin overlay (in light DOM, sits above char). */
+#sd-pin-status-badge{position:absolute;top:-6px;right:8px;z-index:50;pointer-events:auto;user-select:none;}
+#sd-pin-badge-pill{display:inline-flex;align-items:center;gap:5px;padding:4px 10px 4px 8px;
+  background:rgba(10,18,45,0.85);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
+  border:1px solid rgba(80,160,255,0.35);border-radius:20px;
+  font-size:10.5px;font-weight:700;color:#90c8ff;cursor:default;
+  box-shadow:0 2px 10px rgba(0,0,0,0.35);
+  transition:border-color 0.25s,color 0.25s;white-space:nowrap;font-family:'Segoe UI',sans-serif;}
+#sd-pin-badge-pill.has-crit{border-color:rgba(255,80,80,0.7);color:#ffb0b0;animation:sd-pulse 1.2s infinite;}
+#sd-pin-badge-pill.has-warn{border-color:rgba(255,200,60,0.6);color:#ffe090;}
+#sd-pin-badge-pill.all-ok  {border-color:rgba(60,220,120,0.5);color:#a0ffcc;}
+#sd-pin-badge-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0;background:#a0ffcc;transition:background 0.25s;}
+#sd-pin-badge-pill.has-crit #sd-pin-badge-dot{background:#ff6060;}
+#sd-pin-badge-pill.has-warn #sd-pin-badge-dot{background:#ffd040;}
+#sd-pin-badge-dropdown{position:absolute;top:calc(100% + 5px);right:0;
+  min-width:200px;max-width:240px;
+  background:rgba(10,18,45,0.92);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);
+  border:1px solid rgba(80,160,255,0.38);border-radius:10px;padding:5px 6px;
+  display:flex;flex-direction:column;gap:3px;
+  max-height:220px;overflow-y:auto;overflow-x:hidden;
+  scrollbar-width:thin;scrollbar-color:rgba(80,160,255,0.35) transparent;
+  box-shadow:0 8px 24px rgba(0,0,0,0.45);
+  opacity:0;pointer-events:none;transform:translateY(-6px);
+  transition:opacity 0.2s ease,transform 0.2s ease;z-index:51;font-family:'Segoe UI',sans-serif;}
+#sd-pin-badge-dropdown::-webkit-scrollbar{width:3px;}
+#sd-pin-badge-dropdown::-webkit-scrollbar-thumb{background:rgba(80,160,255,0.4);border-radius:2px;}
+#sd-pin-status-badge:hover #sd-pin-badge-dropdown,
+#sd-pin-status-badge:focus-within #sd-pin-badge-dropdown,
+#sd-pin-status-badge.open #sd-pin-badge-dropdown{opacity:1;pointer-events:auto;transform:translateY(0);}
+@media (max-width: 768px){
+  #sd-pin-status-badge{top:-2px;right:4px;}
+  #sd-pin-badge-pill{padding:3px 7px 3px 6px;font-size:9.5px;}
+  #sd-pin-badge-dropdown{min-width:150px;max-width:180px;font-size:9.5px;}
+}
 `;
 
 // ─── Card template (i18n-aware) ──────────────────────────────
@@ -1247,15 +1282,11 @@ class SysDesk extends HTMLElement {
   }
 
   // ── Status badge: pill indicator + hover dropdown ──────────
-  _updateBadge() {
-    const pill     = this._shadow.getElementById('sd-badge-pill');
-    const label    = this._shadow.getElementById('sd-badge-label');
-    const dropdown = this._shadow.getElementById('sd-badge-dropdown');
-    if (!pill || !label || !dropdown || !this._hass) return;
-
+  // Compute current alert rows + counts. Single source of truth, used by both
+  // in-card badge (shadow DOM) and pin overlay badge (light DOM).
+  _buildBadgeRows() {
+    if (!this._hass) return null;
     const rows = [];
-
-    // Server sensors
     for (const s of this._getEffectiveSensors()) {
       const state = this._hass.states[s.entity];
       if (!state) continue;
@@ -1267,39 +1298,58 @@ class SysDesk extends HTMLElement {
       if (val >= thresh.crit)      rows.push({ cls:'crit', text:`🚨 ${s.label}: ${Math.round(val)}${unit}` });
       else if (val >= thresh.warn) rows.push({ cls:'warn', text:`⚠️ ${s.label}: ${Math.round(val)}${unit}` });
     }
-
-    // Services
     for (const svc of this._getEffectiveServices()) {
       const state = this._hass.states[svc.entity];
       const stVal = state?.state;
       const isDown = !stVal || stVal === 'off' || stVal === 'unavailable' || stVal === 'unknown';
       if (isDown) rows.push({ cls:'down', text:`🔴 ${svc.label} DOWN` });
     }
-
     const critCount = rows.filter(r => r.cls === 'crit').length;
     const warnCount = rows.filter(r => r.cls === 'warn' || r.cls === 'down').length;
+    return { rows, critCount, warnCount };
+  }
 
-    // Cập nhật pill
+  // Apply badge state to one (pill, label, dropdown) trio. Idempotent — safe to call
+  // for both in-card and pin overlay badges from a single _updateBadge tick.
+  _renderBadgeTo(pill, label, dropdown, data) {
+    if (!pill || !label || !dropdown) return;
     pill.classList.remove('has-crit','has-warn','all-ok');
-    if (critCount > 0) {
+    if (data.critCount > 0) {
       pill.classList.add('has-crit');
-      label.textContent = _t('badge_crit_count', critCount + warnCount);
-    } else if (warnCount > 0) {
+      label.textContent = _t('badge_crit_count', data.critCount + data.warnCount);
+    } else if (data.warnCount > 0) {
       pill.classList.add('has-warn');
-      label.textContent = _t('badge_warn_count', warnCount);
+      label.textContent = _t('badge_warn_count', data.warnCount);
     } else {
       pill.classList.add('all-ok');
       label.textContent = _t('badge_ok');
     }
-
-    // Cập nhật dropdown
-    if (rows.length === 0) {
+    if (data.rows.length === 0) {
       dropdown.innerHTML = `<div class="sd-badge-row ok">${_t('badge_all_ok')}</div>`;
     } else {
-      dropdown.innerHTML = rows.map(r =>
+      dropdown.innerHTML = data.rows.map(r =>
         `<div class="sd-badge-row ${r.cls}">${r.text}</div>`
       ).join('');
     }
+  }
+
+  _updateBadge() {
+    const data = this._buildBadgeRows();
+    if (!data) return;
+    // In-card badge (shadow DOM, hidden when always_pinned via :host([data-always-pinned]))
+    this._renderBadgeTo(
+      this._shadow.getElementById('sd-badge-pill'),
+      this._shadow.getElementById('sd-badge-label'),
+      this._shadow.getElementById('sd-badge-dropdown'),
+      data,
+    );
+    // Pin overlay badge (light DOM, exists only while pinned)
+    this._renderBadgeTo(
+      document.getElementById('sd-pin-badge-pill'),
+      document.getElementById('sd-pin-badge-label'),
+      document.getElementById('sd-pin-badge-dropdown'),
+      data,
+    );
   }
 
   // ── Update sensors & fire alerts ───────────────────────────
@@ -1877,6 +1927,10 @@ class SysDesk extends HTMLElement {
       </div>`;
     el.innerHTML = `
       ${pinControlsHtml}
+      <div id="sd-pin-status-badge" tabindex="0">
+        <div id="sd-pin-badge-pill"><span id="sd-pin-badge-dot"></span><span id="sd-pin-badge-label">${_t('badge_checking')}</span></div>
+        <div id="sd-pin-badge-dropdown"></div>
+      </div>
       <div id="sd-pin-char">
         <div id="_sd_pin_chat"><div id="_sd_pin_chat_inner"></div></div>
         <canvas id="_sd_pin_canvas" width="${fw}" height="${fh}"
@@ -1885,8 +1939,23 @@ class SysDesk extends HTMLElement {
     document.body.appendChild(el);
     this._pinEl = el;
 
+    // Mobile: tap-to-toggle dropdown (hover doesn't fire on touch).
+    const badgeEl = document.getElementById('sd-pin-status-badge');
+    if (badgeEl) {
+      badgeEl.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        badgeEl.classList.toggle('open');
+      });
+      // Close on outside click
+      document.addEventListener('click', (ev) => {
+        if (!badgeEl.contains(ev.target)) badgeEl.classList.remove('open');
+      });
+    }
+
     const pc = document.getElementById('_sd_pin_canvas');
     this._loadCanvas(pc, this._modelIdx, fw, fh, true);
+    // Initial badge population (sensors may already be in this._hass).
+    try { this._updateBadge(); } catch(e) {}
 
     const _unpinBtn = document.getElementById('_sd_pbtn_unpin');
     if (_unpinBtn) _unpinBtn.onclick = () => this._exitPin();
