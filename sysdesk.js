@@ -1993,9 +1993,6 @@ class SysDesk extends HTMLElement {
         <div class="sd-modal-row">
           <button class="sd-modal-btn full" id="_sd_mb_reload">⟳ Reload Live2D</button>
         </div>
-        <div class="sd-modal-row">
-          <button class="sd-modal-btn full danger" id="_sd_mb_exit">🚪 Exit Pin</button>
-        </div>
       </div>`;
     document.body.appendChild(ov);
     requestAnimationFrame(() => ov.classList.add('show'));
@@ -2024,11 +2021,7 @@ class SysDesk extends HTMLElement {
       this._pushStatus(_t('reload_done', this._cn()), true);
       close();
     };
-    document.getElementById('_sd_mb_exit').onclick   = () => {
-      if (this._pinned)   this._exitPin();
-      if (this._floating) this._exitFloating();
-      close();
-    };
+    // Exit pin/float removed from modal — controlled only via card config (always_pinned).
 
     this._modalEscHandler = (e) => { if (e.key === 'Escape') close(); };
     document.addEventListener('keydown', this._modalEscHandler);
