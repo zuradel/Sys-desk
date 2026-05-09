@@ -1003,7 +1003,8 @@ class SysDesk extends HTMLElement {
     this._pinChatShow     = null;
     this._audio       = null;
     this._ttsUtter    = null;
-    this._audioEnabled = true;
+    // Audio enabled state persists across page reload (toggle via sound button or modal TTS).
+    try { this._audioEnabled = localStorage.getItem('sd_audio') !== '0'; } catch(e) { this._audioEnabled = true; }
     this._msgListener = null;
     this._skipGreetingPush = false;
     // Badge state tracking
@@ -1066,13 +1067,11 @@ class SysDesk extends HTMLElement {
       if (c) this._loadCanvas(c, this._modelIdx, w, h, false);
       if (this._floating) {
         const fc = document.getElementById('_sd_float_canvas');
-        const fh = this._config.float_height || 600; const fw = this._config.float_width || 380;
-        if (fc) this._loadCanvas(fc, this._modelIdx, fw, fh, true);
+        if (fc) { const d = this._overlayDims('float'); this._loadCanvas(fc, this._modelIdx, d.w, d.h, true); }
       }
       if (this._pinned) {
         const pc = document.getElementById('_sd_pin_canvas');
-        const fh = this._config.float_height || 600; const fw = this._config.float_width || 380;
-        if (pc) this._loadCanvas(pc, this._modelIdx, fw, fh, true);
+        if (pc) { const d = this._overlayDims('pin'); this._loadCanvas(pc, this._modelIdx, d.w, d.h, true); }
       }
       this._pushStatus(_t('reload_done', this._cn()), true);
     };
@@ -1086,6 +1085,7 @@ class SysDesk extends HTMLElement {
     const btnSound = this._shadow.getElementById('sdBtnSound');
     btnSound.onclick = () => {
       this._audioEnabled = !this._audioEnabled;
+      try { localStorage.setItem('sd_audio', this._audioEnabled ? '1' : '0'); } catch(e) {}
       if (!this._audioEnabled) {
         this._stopAudio();
         btnSound.textContent = _t('btn_tts_off'); btnSound.classList.add('red'); btnSound.classList.remove('green');
@@ -1706,10 +1706,10 @@ class SysDesk extends HTMLElement {
   _reloadCharFrame() {
     if (this._floating) {
       const fc = document.getElementById('_sd_float_canvas');
-      if (fc) { const fh = this._config.float_height || 600, fw = this._config.float_width || 380; this._loadCanvas(fc, this._modelIdx, fw, fh, true); }
+      if (fc) { const d = this._overlayDims('float'); this._loadCanvas(fc, this._modelIdx, d.w, d.h, true); }
     } else if (this._pinned) {
       const pc = document.getElementById('_sd_pin_canvas');
-      if (pc) { const fh = this._config.float_height || 600, fw = this._config.float_width || 380; this._loadCanvas(pc, this._modelIdx, fw, fh, true); }
+      if (pc) { const d = this._overlayDims('pin'); this._loadCanvas(pc, this._modelIdx, d.w, d.h, true); }
     } else {
       const c = this._shadow.getElementById('sd-l2d-canvas');
       const h = this._config.height || 440, w = this._config.width || 400;
@@ -1726,12 +1726,16 @@ class SysDesk extends HTMLElement {
   // ── Floating mode ───────────────────────────────────────────
   _enterFloating() {
     if (this._floating) return;
+    if (!this.isConnected) return;
+    if (document.getElementById('sd-float-overlay')) return;
     this._floating = true;
     try { localStorage.setItem('sd_floating', '1'); } catch(e) {}
     this._shadow.querySelector('.sd-card').style.display = 'none';
 
-    const fh = this._config.float_height || 600;
-    const fw = this._config.float_width  || 380;
+    // Responsive: shrink float overlay on mobile screens.
+    const isMobile = window.matchMedia && window.matchMedia('(max-width: 768px)').matches;
+    const fh = isMobile ? (this._config.mobile_float_height || 280) : (this._config.float_height || 600);
+    const fw = isMobile ? (this._config.mobile_float_width  || 180) : (this._config.float_width  || 380);
 
     if (!document.getElementById('_sd_float_css')) {
       const st = document.createElement('style');
@@ -1837,6 +1841,10 @@ class SysDesk extends HTMLElement {
 
   _enterPin() {
     if (this._pinned) return;
+    // Skip if element detached (race: 100ms setTimeout in connectedCallback fires after re-detach).
+    if (!this.isConnected) return;
+    // Skip if pin overlay already in DOM (out-of-sync flag/DOM after errored exit).
+    if (document.getElementById('sd-pin-overlay')) return;
     this._pinned = true;
     try { localStorage.setItem('sd_pinned', '1'); } catch(e) {}
     const btn = this._shadow.getElementById('sdBtnPin');
@@ -1847,8 +1855,10 @@ class SysDesk extends HTMLElement {
       if (_card) _card.style.display = 'none';
     }
 
-    const fh = this._config.float_height || 600;
-    const fw = this._config.float_width  || 380;
+    // Responsive: shrink pin overlay on mobile screens so K2 doesn't cover the dashboard.
+    const isMobile = window.matchMedia && window.matchMedia('(max-width: 768px)').matches;
+    const fh = isMobile ? (this._config.mobile_pin_height || 280) : (this._config.float_height || 600);
+    const fw = isMobile ? (this._config.mobile_pin_width  || 180) : (this._config.float_width  || 380);
 
     if (!document.getElementById('_sd_pin_css')) {
       const st = document.createElement('style');
@@ -2012,6 +2022,7 @@ class SysDesk extends HTMLElement {
     };
     document.getElementById('_sd_mb_sound').onclick  = () => {
       this._audioEnabled = !this._audioEnabled;
+      try { localStorage.setItem('sd_audio', this._audioEnabled ? '1' : '0'); } catch(e) {}
       if (!this._audioEnabled) this._stopAudio();
       const b = document.getElementById('_sd_mb_sound');
       if (b) b.textContent = '🔊 ' + (this._audioEnabled ? 'TTS ON' : 'TTS OFF');
@@ -2077,6 +2088,17 @@ class SysDesk extends HTMLElement {
     this._modalEscHandler && document.removeEventListener('keydown', this._modalEscHandler);
     this._modalEscHandler = null;
     try { document.getElementById('sd-modal-overlay')?.remove(); } catch(e) {}
+  }
+
+  // Compute overlay dimensions, picking mobile fallbacks under 768px viewport.
+  _overlayDims(kind) {
+    const isMobile = window.matchMedia && window.matchMedia('(max-width: 768px)').matches;
+    const mw = kind === 'pin' ? 'mobile_pin_width'  : 'mobile_float_width';
+    const mh = kind === 'pin' ? 'mobile_pin_height' : 'mobile_float_height';
+    return {
+      w: isMobile ? (this._config[mw] || 180) : (this._config.float_width  || 380),
+      h: isMobile ? (this._config[mh] || 280) : (this._config.float_height || 600),
+    };
   }
 
   // ── Helpers ─────────────────────────────────────────────────
