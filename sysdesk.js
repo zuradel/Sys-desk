@@ -713,8 +713,9 @@ const SD_PIN_CSS = `
 #_sd_pin_chat_inner::before{content:'';position:absolute;top:50%;right:-15px;transform:translateY(-50%);
   border:7px solid transparent;border-left-color:rgba(10,20,50,0.92);border-right:none;z-index:1;}
 
-/* Status badge mirrored into pin overlay (in light DOM, sits above char). */
-#sd-pin-status-badge{position:absolute;top:-6px;right:8px;z-index:50;pointer-events:auto;user-select:none;}
+/* Status badge mirrored into pin overlay — fixed at viewport bottom-right so it's always
+   visible regardless of pin overlay flex layout. Higher z than overlay so dropdown wins. */
+#sd-pin-status-badge{position:fixed;bottom:14px;right:14px;z-index:2147483647;pointer-events:auto;user-select:none;}
 #sd-pin-badge-pill{display:inline-flex;align-items:center;gap:5px;padding:4px 10px 4px 8px;
   background:rgba(10,18,45,0.85);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
   border:1px solid rgba(80,160,255,0.35);border-radius:20px;
@@ -727,7 +728,7 @@ const SD_PIN_CSS = `
 #sd-pin-badge-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0;background:#a0ffcc;transition:background 0.25s;}
 #sd-pin-badge-pill.has-crit #sd-pin-badge-dot{background:#ff6060;}
 #sd-pin-badge-pill.has-warn #sd-pin-badge-dot{background:#ffd040;}
-#sd-pin-badge-dropdown{position:absolute;top:calc(100% + 5px);right:0;
+#sd-pin-badge-dropdown{position:absolute;bottom:calc(100% + 5px);right:0;
   min-width:200px;max-width:240px;
   background:rgba(10,18,45,0.92);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);
   border:1px solid rgba(80,160,255,0.38);border-radius:10px;padding:5px 6px;
@@ -743,7 +744,7 @@ const SD_PIN_CSS = `
 #sd-pin-status-badge:focus-within #sd-pin-badge-dropdown,
 #sd-pin-status-badge.open #sd-pin-badge-dropdown{opacity:1;pointer-events:auto;transform:translateY(0);}
 @media (max-width: 768px){
-  #sd-pin-status-badge{top:-2px;right:4px;}
+  #sd-pin-status-badge{bottom:8px;right:8px;}
   #sd-pin-badge-pill{padding:3px 7px 3px 6px;font-size:9.5px;}
   #sd-pin-badge-dropdown{min-width:150px;max-width:180px;font-size:9.5px;}
 }
