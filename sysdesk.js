@@ -1093,7 +1093,7 @@ class SysDesk extends HTMLElement {
     const _hOff = SD_MODELS[this._modelIdx].hOffset || 0;
     canvas.style.cssText = 'width:' + w + 'px;height:' + h + 'px;background:transparent;display:block;z-index:2;transition:margin-top 0.3s ease;flex-shrink:0;margin-left:auto;position:relative;left:' + _hOff + 'px;';
     // Skip in-card canvas load when always_pinned: card is hidden via CSS.
-    if (!this._config.always_pinned) this._loadCanvas(canvas, this._modelIdx, w, h, false);
+    if (!this._config.always_pinned) this._loadCanvas(canvas, this._modelIdx, w, h, '_cardApp');
 
     // Toolbar events
     this._shadow.getElementById('sdBtnPrev').onclick   = () => this._switchModelPrev();
@@ -1101,14 +1101,14 @@ class SysDesk extends HTMLElement {
     this._shadow.getElementById('sdBtnQuote').onclick  = () => this._sysQuote();
     this._shadow.getElementById('sdBtnReload').onclick = () => {
       const c = this._shadow.getElementById('sd-l2d-canvas');
-      if (c) this._loadCanvas(c, this._modelIdx, w, h, false);
+      if (c) this._loadCanvas(c, this._modelIdx, w, h, '_cardApp');
       if (this._floating) {
         const fc = document.getElementById('_sd_float_canvas');
-        if (fc) { const d = this._overlayDims('float'); this._loadCanvas(fc, this._modelIdx, d.w, d.h, true); }
+        if (fc) { const d = this._overlayDims('float'); this._loadCanvas(fc, this._modelIdx, d.w, d.h, '_floatApp'); }
       }
       if (this._pinned) {
         const pc = document.getElementById('_sd_pin_canvas');
-        if (pc) { const d = this._overlayDims('pin'); this._loadCanvas(pc, this._modelIdx, d.w, d.h, true); }
+        if (pc) { const d = this._overlayDims('pin'); this._loadCanvas(pc, this._modelIdx, d.w, d.h, '_pinApp'); }
       }
       this._pushStatus(_t('reload_done', this._cn()), true);
     };
@@ -1167,13 +1167,18 @@ class SysDesk extends HTMLElement {
   // Replaces iframe + L2Dwidget approach. Canvas in light DOM (or shadow DOM —
   // pixi accepts a DOM ref directly) survives HA view-cache reattach since the
   // canvas element + its WebGL context are preserved across detach/reattach.
-  async _loadCanvas(canvas, idx, w, h, isFloat) {
+  // slotKey: '_cardApp' | '_floatApp' | '_pinApp' — 3-slot model (one slot per DOM canvas).
+  // Reuse PIXI.Application per (slot, canvas); destroy()+recreate causes WebGL context death (PIXI v6.5.x).
+  // Liveness probe = renderer+stage+view (no _destroyed public flag exists in v6.5).
+  async _loadCanvas(canvas, idx, w, h, slotKey) {
+    // Back-compat: legacy call sites passing boolean isFloat.
+    if (slotKey === true)  slotKey = '_pinApp';
+    if (slotKey === false) slotKey = '_cardApp';
+    if (!slotKey) slotKey = '_cardApp';
+
     const m = SD_MODELS[idx];
     const lbl = this._shadow.getElementById('sdModelLabel');
     if (lbl) lbl.textContent = m.name;
-
-    canvas.width  = w;
-    canvas.height = h;
 
     try {
       await sdEnsureLive2DScripts();
@@ -1183,31 +1188,54 @@ class SysDesk extends HTMLElement {
     }
     if (!window.PIXI || !window.PIXI.live2d) return;
 
-    // Track + dispose previous app for this canvas slot (model switch / reload).
-    const slot = isFloat ? '_pinApp' : '_cardApp';
-    if (this[slot]) { try { this[slot].destroy(false, { children: true }); } catch (e) {} this[slot] = null; }
+    // Per-slot generation counter — discard stale Live2DModel.from() resolutions on rapid switch.
+    const genKey = slotKey + '_gen';
+    const gen = (this[genKey] = (this[genKey] || 0) + 1);
 
-    const app = new window.PIXI.Application({
-      view: canvas,
-      width: w, height: h,
-      backgroundAlpha: 0,            // PIXI v6: alpha 0 → transparent renderer clear
-      backgroundColor: 0x000000,     // belt-and-braces: black + alpha 0 = fully transparent
-      antialias: true,
-      autoStart: true,
-      premultipliedAlpha: false,
-    });
-    this[slot] = app;
+    let app = this[slotKey];
+
+    // Liveness probe + canvas-identity invariant (HA view-cache may rebuild shadow DOM).
+    if (app && app.renderer && app.stage && app.view === canvas) {
+      app.renderer.resize(w, h);
+      // Explicit destroy each child — removeChildren() leaks Live2DModel GPU resources.
+      const kids = app.stage.children.slice();
+      for (const c of kids) {
+        try { c.destroy({ children: true, texture: false, baseTexture: false }); } catch (_) {}
+      }
+    } else {
+      // Stale / wrong-canvas / first-load → destroy old (if any) then fresh init.
+      if (app) { try { app.destroy(true, { children: true }); } catch (_) {} }
+      canvas.width  = w;
+      canvas.height = h;
+      app = new window.PIXI.Application({
+        view: canvas,
+        width: w, height: h,
+        backgroundAlpha: 0,            // PIXI v6: alpha 0 → transparent renderer clear
+        backgroundColor: 0x000000,
+        antialias: true,
+        autoStart: true,
+        premultipliedAlpha: false,
+      });
+      this[slotKey] = app;
+    }
 
     let model;
     try {
       model = await window.PIXI.live2d.Live2DModel.from(m.path);
     } catch (e) {
       console.error('[sysdesk] model load failed', m.path, e);
-      // Destroy the partially-initialized app so subsequent retries get a clean canvas.
-      try { app.destroy(false, { children: true }); } catch (_) {}
-      this[slot] = null;
+      // Preserve destroy-on-failure — corrupt renderer must not be reused.
+      try { app.destroy(true, { children: true }); } catch (_) {}
+      this[slotKey] = null;
       return;
     }
+
+    // Stale resolution? Discard.
+    if (gen !== this[genKey]) {
+      try { model.destroy({ children: true }); } catch (_) {}
+      return;
+    }
+
     app.stage.addChild(model);
 
     // Fit + center: shrink model so it fits inside canvas, then center horizontally.
@@ -1229,7 +1257,9 @@ class SysDesk extends HTMLElement {
       if (this._floating) this._exitFloating();
     };
 
-    setTimeout(() => {
+    // Clear pending greeting on rapid switch — prevents stacked greetings.
+    if (this._greetTimer) clearTimeout(this._greetTimer);
+    this._greetTimer = setTimeout(() => {
       if (this._skipGreetingPush) { this._skipGreetingPush = false; return; }
       this._pushStatus(m.greeting, true);
     }, 2400);
@@ -1758,17 +1788,17 @@ class SysDesk extends HTMLElement {
   _reloadCharFrame() {
     if (this._floating) {
       const fc = document.getElementById('_sd_float_canvas');
-      if (fc) { const d = this._overlayDims('float'); this._loadCanvas(fc, this._modelIdx, d.w, d.h, true); }
+      if (fc) { const d = this._overlayDims('float'); this._loadCanvas(fc, this._modelIdx, d.w, d.h, '_floatApp'); }
     } else if (this._pinned) {
       const pc = document.getElementById('_sd_pin_canvas');
-      if (pc) { const d = this._overlayDims('pin'); this._loadCanvas(pc, this._modelIdx, d.w, d.h, true); }
+      if (pc) { const d = this._overlayDims('pin'); this._loadCanvas(pc, this._modelIdx, d.w, d.h, '_pinApp'); }
     } else {
       const c = this._shadow.getElementById('sd-l2d-canvas');
       const h = this._config.height || 440, w = this._config.width || 400;
       if (c) {
         const _hOff2 = SD_MODELS[this._modelIdx].hOffset || 0;
         c.style.left = _hOff2 + 'px';
-        this._loadCanvas(c, this._modelIdx, w, h, false);
+        this._loadCanvas(c, this._modelIdx, w, h, '_cardApp');
       }
     }
     const lbl = this._shadow.getElementById('sdModelLabel');
@@ -1814,7 +1844,7 @@ class SysDesk extends HTMLElement {
     this._floatEl = el;
 
     const fc = document.getElementById('_sd_float_canvas');
-    this._loadCanvas(fc, this._modelIdx, fw, fh, true);
+    this._loadCanvas(fc, this._modelIdx, fw, fh, '_floatApp');
 
     document.getElementById('_sd_fbtn_restore').onclick = () => this._exitFloating();
     document.getElementById('_sd_fbtn_prev').onclick    = () => this._switchModelPrev();
@@ -1870,9 +1900,9 @@ class SysDesk extends HTMLElement {
     const c = this._shadow.getElementById('sd-l2d-canvas');
     const w = this._config.width  || 400;
     const h = this._config.height || 440;
-    // Destroy float overlay's PIXI app — _pinApp slot is shared between float & pin overlays.
-    if (this._pinApp) { try { this._pinApp.destroy(false, { children: true }); } catch (_) {} this._pinApp = null; }
-    if (c) this._loadCanvas(c, this._modelIdx, w, h, false);
+    // Destroy float overlay's PIXI app (own slot under 3-slot model).
+    if (this._floatApp) { try { this._floatApp.destroy(true, { children: true }); } catch (_) {} this._floatApp = null; }
+    if (c) this._loadCanvas(c, this._modelIdx, w, h, '_cardApp');
     this._pushStatus(_t('back_to_card', this._cn()), true);
   }
 
@@ -1955,7 +1985,7 @@ class SysDesk extends HTMLElement {
     }
 
     const pc = document.getElementById('_sd_pin_canvas');
-    this._loadCanvas(pc, this._modelIdx, fw, fh, true);
+    this._loadCanvas(pc, this._modelIdx, fw, fh, '_pinApp');
     // Initial badge population (sensors may already be in this._hass).
     try { this._updateBadge(); } catch(e) {}
 
@@ -2149,10 +2179,12 @@ class SysDesk extends HTMLElement {
     try { clearInterval(this._pinChatInterval); this._pinChatInterval = null; } catch(e) {}
     try { clearTimeout(this._alertTtsTimer); } catch(e) {}
     try { clearTimeout(this._reportLockTimer); } catch(e) {}
+    try { clearTimeout(this._greetTimer); } catch(e) {}
     try { this._stopAudio && this._stopAudio(); } catch(e) {}
-    // Destroy PIXI apps so WebGL contexts release across view-cache cycles.
-    if (this._cardApp) { try { this._cardApp.destroy(false, { children: true }); } catch(_) {} this._cardApp = null; }
-    if (this._pinApp)  { try { this._pinApp .destroy(false, { children: true }); } catch(_) {} this._pinApp  = null; }
+    // Destroy PIXI apps so WebGL contexts release across view-cache cycles (3-slot model).
+    if (this._cardApp)  { try { this._cardApp .destroy(true, { children: true }); } catch(_) {} this._cardApp  = null; }
+    if (this._floatApp) { try { this._floatApp.destroy(true, { children: true }); } catch(_) {} this._floatApp = null; }
+    if (this._pinApp)   { try { this._pinApp  .destroy(true, { children: true }); } catch(_) {} this._pinApp   = null; }
     try { document.getElementById('sd-float-overlay')?.remove(); } catch(e) {}
     try { document.getElementById('sd-pin-overlay')?.remove(); } catch(e) {}
     this._floatEl = null; this._pinEl = null;
