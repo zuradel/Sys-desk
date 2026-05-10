@@ -845,7 +845,7 @@ function sdCardTemplate() {
 
   /* Bubble — bên trái nhân vật */
   #sd-bubble-wrap{
-    position:absolute;bottom:68%;left:2px;width:37%;max-width:200px;
+    position:absolute;bottom:82%;left:2px;width:32%;max-width:170px;
     z-index:20;pointer-events:none;opacity:0;
     transform:scale(0.85) translateX(-8px);transform-origin:left center;
     transition:opacity 0.3s ease, transform 0.3s cubic-bezier(0.34,1.56,0.64,1);
