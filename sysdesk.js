@@ -698,20 +698,22 @@ const SD_PIN_CSS = `
 #sd-pin-char{pointer-events:all;cursor:pointer;filter:drop-shadow(0 8px 24px rgba(40,80,200,0.5));transition:transform 0.25s;position:relative;}
 #sd-pin-char:hover{transform:scale(1.05) translateY(-6px);}
 #sd-pin-char iframe{border:none;background:transparent;display:block;pointer-events:none;}
+/* Pin chat = flex sibling above the character → no overlap. */
 #_sd_pin_chat{
-  pointer-events:none;position:absolute;
-  bottom:68%;left:8px;width:160px;opacity:0;
-  transform:scale(0.85) translateX(-6px);transform-origin:left center;
-  transition:opacity 0.3s ease,transform 0.3s cubic-bezier(0.34,1.56,0.64,1);z-index:10;}
-#_sd_pin_chat.show{opacity:1;transform:scale(1) translateX(0);}
-#_sd_pin_chat_inner{position:relative;padding:8px 10px;
+  pointer-events:none;align-self:flex-end;
+  margin-bottom:6px;margin-right:12px;max-width:220px;
+  opacity:0;transform:scale(0.9);transform-origin:bottom right;
+  transition:opacity 0.3s ease,transform 0.3s cubic-bezier(0.34,1.56,0.64,1);}
+#_sd_pin_chat.show{opacity:1;transform:scale(1);}
+#_sd_pin_chat_inner{position:relative;padding:8px 12px;
   background:rgba(10,20,50,0.92);border:1.5px solid rgba(80,160,255,0.6);
   border-radius:10px;font-size:11px;color:#b8d8ff;font-weight:600;line-height:1.5;
   box-shadow:0 4px 20px rgba(20,60,180,0.3);word-break:break-word;font-family:'Segoe UI',sans-serif;}
-#_sd_pin_chat_inner::after{content:'';position:absolute;top:50%;right:-18px;transform:translateY(-50%);
-  border:9px solid transparent;border-left-color:rgba(80,160,255,0.6);border-right:none;}
-#_sd_pin_chat_inner::before{content:'';position:absolute;top:50%;right:-15px;transform:translateY(-50%);
-  border:7px solid transparent;border-left-color:rgba(10,20,50,0.92);border-right:none;z-index:1;}
+/* arrow pointing down toward character below */
+#_sd_pin_chat_inner::after{content:'';position:absolute;left:50%;bottom:-10px;transform:translateX(-50%);
+  border:8px solid transparent;border-top-color:rgba(80,160,255,0.6);border-bottom:none;}
+#_sd_pin_chat_inner::before{content:'';position:absolute;left:50%;bottom:-7px;transform:translateX(-50%);
+  border:6px solid transparent;border-top-color:rgba(10,20,50,0.92);border-bottom:none;z-index:1;}
 
 /* Status badge mirrored into pin overlay — fixed at viewport bottom-right so it's always
    visible regardless of pin overlay flex layout. Higher z than overlay so dropdown wins. */
@@ -844,10 +846,12 @@ function sdCardTemplate() {
   @keyframes sd-pulse{0%,100%{opacity:1}50%{opacity:0.55}}
 
   /* Bubble — bên trái nhân vật */
+  /* Bubble = flex sibling left of canvas → never overlaps the character. */
   #sd-bubble-wrap{
-    position:absolute;bottom:82%;left:2px;width:32%;max-width:170px;
-    z-index:20;pointer-events:none;opacity:0;
-    transform:scale(0.85) translateX(-8px);transform-origin:left center;
+    align-self:center;margin-right:6px;flex-shrink:1;flex-grow:0;
+    max-width:160px;min-width:0;
+    pointer-events:none;opacity:0;
+    transform:scale(0.85) translateX(-8px);transform-origin:right center;
     transition:opacity 0.3s ease, transform 0.3s cubic-bezier(0.34,1.56,0.64,1);
   }
   #sd-bubble-wrap.show{opacity:1;transform:scale(1) translateX(0);}
@@ -861,7 +865,7 @@ function sdCardTemplate() {
     box-shadow:0 4px 20px rgba(10,40,160,0.35),inset 0 1px 0 rgba(255,255,255,0.06);
     word-break:break-word;
   }
-  /* mũi tên sang phải (hướng về nhân vật bên phải) */
+  /* arrow pointing right toward the character */
   #sd-bubble::after{content:'';position:absolute;top:50%;right:-20px;transform:translateY(-50%);
     border:10px solid transparent;border-left-color:rgba(80,160,255,0.65);border-right:none;}
   #sd-bubble::before{content:'';position:absolute;top:50%;right:-17px;transform:translateY(-50%);
@@ -1957,8 +1961,8 @@ class SysDesk extends HTMLElement {
         <div id="sd-pin-badge-pill"><span id="sd-pin-badge-dot"></span><span id="sd-pin-badge-label">${_t('badge_checking')}</span></div>
         <div id="sd-pin-badge-dropdown"></div>
       </div>
+      <div id="_sd_pin_chat"><div id="_sd_pin_chat_inner"></div></div>
       <div id="sd-pin-char">
-        <div id="_sd_pin_chat"><div id="_sd_pin_chat_inner"></div></div>
         <canvas id="_sd_pin_canvas" width="${fw}" height="${fh}"
           style="background:transparent;display:block;"></canvas>
       </div>`;
