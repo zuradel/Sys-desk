@@ -1167,15 +1167,9 @@ class SysDesk extends HTMLElement {
   // Replaces iframe + L2Dwidget approach. Canvas in light DOM (or shadow DOM —
   // pixi accepts a DOM ref directly) survives HA view-cache reattach since the
   // canvas element + its WebGL context are preserved across detach/reattach.
-  // slotKey: '_cardApp' | '_floatApp' | '_pinApp' — 3-slot model (one slot per DOM canvas).
-  // Reuse PIXI.Application per (slot, canvas); destroy()+recreate causes WebGL context death (PIXI v6.5.x).
-  // Liveness probe = renderer+stage+view (no _destroyed public flag exists in v6.5).
+  // slotKey: '_cardApp' | '_floatApp' | '_pinApp'. Reuse PIXI app per (slot, canvas);
+  // destroy+recreate kills the WebGL context on canvas reuse (PIXI v6.5.x).
   async _loadCanvas(canvas, idx, w, h, slotKey) {
-    // Back-compat: legacy call sites passing boolean isFloat.
-    if (slotKey === true)  slotKey = '_pinApp';
-    if (slotKey === false) slotKey = '_cardApp';
-    if (!slotKey) slotKey = '_cardApp';
-
     const m = SD_MODELS[idx];
     const lbl = this._shadow.getElementById('sdModelLabel');
     if (lbl) lbl.textContent = m.name;
