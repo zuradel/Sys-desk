@@ -698,22 +698,21 @@ const SD_PIN_CSS = `
 #sd-pin-char{pointer-events:all;cursor:pointer;filter:drop-shadow(0 8px 24px rgba(40,80,200,0.5));transition:transform 0.25s;position:relative;}
 #sd-pin-char:hover{transform:scale(1.05) translateY(-6px);}
 #sd-pin-char iframe{border:none;background:transparent;display:block;pointer-events:none;}
-/* Pin chat = flex sibling above the character → no overlap. */
+/* Pin chat = positioned LEFT of canvas, aligned with upper body (no overlap on head). */
 #_sd_pin_chat{
-  pointer-events:none;align-self:flex-end;
-  margin-bottom:6px;margin-right:12px;max-width:220px;
-  opacity:0;transform:scale(0.9);transform-origin:bottom right;
-  transition:opacity 0.3s ease,transform 0.3s cubic-bezier(0.34,1.56,0.64,1);}
-#_sd_pin_chat.show{opacity:1;transform:scale(1);}
+  pointer-events:none;position:absolute;right:calc(100% + 8px);top:18%;width:180px;
+  opacity:0;transform:scale(0.9) translateX(8px);transform-origin:right center;
+  transition:opacity 0.3s ease,transform 0.3s cubic-bezier(0.34,1.56,0.64,1);z-index:10;}
+#_sd_pin_chat.show{opacity:1;transform:scale(1) translateX(0);}
 #_sd_pin_chat_inner{position:relative;padding:8px 12px;
   background:rgba(10,20,50,0.92);border:1.5px solid rgba(80,160,255,0.6);
   border-radius:10px;font-size:11px;color:#b8d8ff;font-weight:600;line-height:1.5;
   box-shadow:0 4px 20px rgba(20,60,180,0.3);word-break:break-word;font-family:'Segoe UI',sans-serif;}
-/* arrow pointing down toward character below */
-#_sd_pin_chat_inner::after{content:'';position:absolute;left:50%;bottom:-10px;transform:translateX(-50%);
-  border:8px solid transparent;border-top-color:rgba(80,160,255,0.6);border-bottom:none;}
-#_sd_pin_chat_inner::before{content:'';position:absolute;left:50%;bottom:-7px;transform:translateX(-50%);
-  border:6px solid transparent;border-top-color:rgba(10,20,50,0.92);border-bottom:none;z-index:1;}
+/* arrow pointing right toward character */
+#_sd_pin_chat_inner::after{content:'';position:absolute;top:50%;right:-10px;transform:translateY(-50%);
+  border:8px solid transparent;border-left-color:rgba(80,160,255,0.6);border-right:none;}
+#_sd_pin_chat_inner::before{content:'';position:absolute;top:50%;right:-7px;transform:translateY(-50%);
+  border:6px solid transparent;border-left-color:rgba(10,20,50,0.92);border-right:none;z-index:1;}
 
 /* Status badge mirrored into pin overlay — fixed at viewport bottom-right so it's always
    visible regardless of pin overlay flex layout. Higher z than overlay so dropdown wins. */
@@ -1961,8 +1960,8 @@ class SysDesk extends HTMLElement {
         <div id="sd-pin-badge-pill"><span id="sd-pin-badge-dot"></span><span id="sd-pin-badge-label">${_t('badge_checking')}</span></div>
         <div id="sd-pin-badge-dropdown"></div>
       </div>
-      <div id="_sd_pin_chat"><div id="_sd_pin_chat_inner"></div></div>
       <div id="sd-pin-char">
+        <div id="_sd_pin_chat"><div id="_sd_pin_chat_inner"></div></div>
         <canvas id="_sd_pin_canvas" width="${fw}" height="${fh}"
           style="background:transparent;display:block;"></canvas>
       </div>`;
