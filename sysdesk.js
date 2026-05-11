@@ -520,7 +520,7 @@ const SD_MODELS = [
   // vOffset: px âm    → kéo nhân vật lên (cắt phần chân), dương → hạ xuống
   { name:'UMP45 🔫',
     path:'https://raw.githubusercontent.com/zenghongtu/live2d-model-assets/master/assets/moc/girls-frontline/UMP45-2/normal/model.json',
-    greeting:_t('model_greeting_ump45'), hasSound:false, scale:0.8, vOffset:-30, hOffset:60 },
+    greeting:_t('model_greeting_ump45'), hasSound:false, scale:0.8, vOffset:-30, hOffset:60, bubbleGap:-90 },
   { name:'M4A1 🛡️',
     path:'https://raw.githubusercontent.com/zenghongtu/live2d-model-assets/master/assets/moc/girls-frontline/M4A1-1/normal/model.json',
     greeting:_t('model_greeting_m4a1'), hasSound:false, scale:1.2, vOffset:0, hOffset:20, bubbleGap:-110 },
