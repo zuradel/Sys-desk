@@ -700,7 +700,7 @@ const SD_PIN_CSS = `
 #sd-pin-char iframe{border:none;background:transparent;display:block;pointer-events:none;}
 /* Pin chat = positioned LEFT of canvas, aligned with upper body (no overlap on head). */
 #_sd_pin_chat{
-  pointer-events:none;position:absolute;right:calc(100% + 8px);top:18%;width:180px;
+  pointer-events:none;position:absolute;right:0;top:18%;width:180px;
   opacity:0;transform:scale(0.9) translateX(8px);transform-origin:right center;
   transition:opacity 0.3s ease,transform 0.3s cubic-bezier(0.34,1.56,0.64,1);z-index:10;}
 #_sd_pin_chat.show{opacity:1;transform:scale(1) translateX(0);}
@@ -1241,12 +1241,13 @@ class SysDesk extends HTMLElement {
     model.x = (w - model.width)  / 2;
     model.y = (h - model.height) / 2 + (m.vOffset || 0);
 
-    // Position bubble flush to character body (per-model: derives from rendered model.x + bubbleGap override).
-    // bubbleGap default 6px; negative values pull bubble inside canvas (over wider chars use larger gap).
-    const gap = (typeof m.bubbleGap === 'number') ? m.bubbleGap : 6;
+    // Bubble right edge aligns with character's visible body. model.x is the bounding-box left
+    // (includes transparent padding); pull bubble inward by bubbleGap so it sits near visible art.
+    // Default -50px; per-char override via SD_MODELS[i].bubbleGap (negative = closer, positive = farther).
+    const gap = (typeof m.bubbleGap === 'number') ? m.bubbleGap : -50;
     if (slotKey === '_pinApp') {
       const chat = document.getElementById('_sd_pin_chat');
-      if (chat) chat.style.right = (w - model.x + gap) + 'px';
+      if (chat) chat.style.right = Math.max(0, w - model.x + gap) + 'px';
     }
 
     // Click + dblclick directly on canvas (no postMessage needed across iframe boundary).
