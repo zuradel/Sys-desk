@@ -592,7 +592,7 @@ const SD_ALL_SENSORS = Object.values(SD_SERVER_SENSORS).flat();
 // trong card config để tránh "DOWN" warnings nếu entity không tồn tại.
 const SD_SERVICES = [
   { key:'adguard', entity:'switch.adguard_home_protection', label:'AdGuard' },
-  // { key:'wifi_5',  entity:'sensor.5_office_state',   label:'WiFi Office'  },
+  // { key:'wifi_5',  entity:'sensor.5_office_state',   label:'WiFi Office'  }, 
   // { key:'wifi_6',  entity:'sensor.6_living_state',   label:'WiFi Living'  },
   // { key:'wifi_7',  entity:'sensor.7_kitchen_state',  label:'WiFi Kitchen' },
   // { key:'wifi_8',  entity:'sensor.8_garage_state',   label:'WiFi Garage'  },
@@ -1240,6 +1240,14 @@ class SysDesk extends HTMLElement {
     model.scale.set(fit);
     model.x = (w - model.width)  / 2;
     model.y = (h - model.height) / 2 + (m.vOffset || 0);
+
+    // Position bubble flush to character body (per-model: derives from rendered model.x + bubbleGap override).
+    // bubbleGap default 6px; negative values pull bubble inside canvas (over wider chars use larger gap).
+    const gap = (typeof m.bubbleGap === 'number') ? m.bubbleGap : 6;
+    if (slotKey === '_pinApp') {
+      const chat = document.getElementById('_sd_pin_chat');
+      if (chat) chat.style.right = (w - model.x + gap) + 'px';
+    }
 
     // Click + dblclick directly on canvas (no postMessage needed across iframe boundary).
     canvas.style.pointerEvents = 'auto';
