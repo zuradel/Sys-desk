@@ -688,7 +688,7 @@ const SD_FLOAT_CSS = `
 
 // ─── Pin overlay CSS ──────────────────────────────────────────
 const SD_PIN_CSS = `
-#sd-pin-overlay{position:fixed;bottom:0;right:16px;z-index:2147483646;display:flex;flex-direction:column;align-items:flex-end;pointer-events:none;}
+#sd-pin-overlay{position:fixed;bottom:0;right:0;z-index:2147483646;display:flex;flex-direction:column;align-items:flex-end;pointer-events:none;}
 #sd-pin-controls{pointer-events:all;display:flex;gap:5px;margin-bottom:4px;margin-right:8px;}
 .sd-pin-btn{background:rgba(20,40,80,0.7);backdrop-filter:blur(8px);border:1px solid rgba(80,160,255,0.4);
   border-radius:20px;padding:4px 11px;color:#90c8ff;font-size:11px;cursor:pointer;
@@ -2174,7 +2174,15 @@ class SysDesk extends HTMLElement {
 
   // Clear setIntervals + destroy PIXI apps + remove overlays when HA detaches via view-cache.
   // Save pin/float intent into _wantPinned/_wantFloating so connectedCallback restores on reattach.
+  //
+  // always_pinned override: skip ALL teardown when configured. The pin overlay must persist
+  // across view navigation (every /home-lab/* path) without flicker. The detached element
+  // retains its PIXI app + intervals; overlay stays on document.body; sibling sys-desk
+  // elements in other views see #sd-pin-overlay exists and no-op in connectedCallback.
+  // Trade-off: WebGL context held until element is GC'd (HA's 3-slot view-cache eviction).
+  // Safe so long as the dashboard has <16 concurrent sys-desk-bearing views.
   disconnectedCallback() {
+    if (this._config && this._config.always_pinned) return;
     if (this._pinned)   this._wantPinned   = true;
     if (this._floating) this._wantFloating = true;
     this._pinned   = false;
